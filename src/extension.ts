@@ -12,8 +12,9 @@ interface Task {
   text: string;
   done: boolean;
   priority?: string;
+  subtasks?: Task[];
+  isExpanded?: boolean;
 }
-
 interface StorageData {
   notepadContent: string;
   todoList: Task[];
@@ -22,12 +23,15 @@ interface StorageData {
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new NotepadSidebarProvider(
-    context.extensionUri,
+    vscode.Uri.file(context.extensionPath),
     context.globalState
   );
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("notepad-sidebar", provider)
+    (vscode.window as any).registerWebviewViewProvider(
+      "notepad-sidebar",
+      provider
+    )
   );
 
   context.subscriptions.push(
@@ -37,9 +41,9 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-class NotepadSidebarProvider implements vscode.WebviewViewProvider {
-  private _view?: vscode.WebviewView;
-  private _autoBackupInterval?: NodeJS.Timeout;
+class NotepadSidebarProvider {
+  private _view?: any;
+  private _autoBackupInterval?: any;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -49,8 +53,8 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   public async resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    webviewView: any,
+    context: any,
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
@@ -81,7 +85,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
       isAuthenticated
     );
 
-    webviewView.webview.onDidReceiveMessage(async (data) => {
+    webviewView.webview.onDidReceiveMessage(async (data: any) => {
       await this._handleWebviewMessage(data);
     });
   }
@@ -178,7 +182,9 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
     if (fileUri?.[0]) {
       try {
-        const fileData = await vscode.workspace.fs.readFile(fileUri[0]);
+        const fileData = await (vscode.workspace as any).fs.readFile(
+          fileUri[0]
+        );
         const fileContent = new TextDecoder().decode(fileData);
         const fileName = fileUri[0].fsPath.toLowerCase();
 
@@ -268,7 +274,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
         message = "Salvo com sucesso!";
       }
 
-      await vscode.workspace.fs.writeFile(
+      await (vscode.workspace as any).fs.writeFile(
         uri,
         new TextEncoder().encode(content)
       );
@@ -276,7 +282,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _generateExportContent(notes: string, tasks: any[]): string {
+  private _generateExportContent(notes: string, tasks: Task[]): string {
     const date = new Date().toLocaleDateString("pt-BR");
     let content = `=== NOTEPAD PRO - ${date} ===\n\n`;
     content += `--- NOTAS ---\n${notes || "(Vazio)"}\n\n`;
@@ -288,6 +294,11 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
       tasks.forEach((t) => {
         const priority = t.priority ? `[${t.priority.toUpperCase()}] ` : "";
         content += `[${t.done ? "x" : " "}] ${priority}${t.text}\n`;
+        if (t.subtasks && t.subtasks.length > 0) {
+          t.subtasks.forEach((st) => {
+            content += `    - [${st.done ? "x" : " "}] ${st.text}\n`;
+          });
+        }
       });
     }
 
@@ -594,25 +605,118 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
         li {
             display: flex;
-            align-items: center;
-            padding: 12px 14px;
+            flex-direction: column;
             margin-bottom: 6px;
             border-radius: 8px;
-            transition: all 0.2s;
-            cursor: default;
+            transition: background 0.2s;
             background: var(--vscode-sideBar-background);
             border: 1px solid transparent;
-            position: relative;
         }
-
-        li.hidden {
-            display: none;
-        }
-
+        
         li:hover {
             background: var(--vscode-list-hoverBackground);
             border-color: var(--vscode-panel-border);
-            transform: translateX(2px);
+        }
+
+        /* MAIN TASK ROW */
+        .task-main-row {
+            display: flex;
+            align-items: center;
+            padding: 12px 14px;
+            width: 100%;
+            cursor: default;
+        }
+
+        /* EXPAND BUTTON */
+        .expand-btn {
+            background: transparent;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.5;
+            transition: all 0.2s;
+            margin-right: 4px;
+            border-radius: 4px;
+        }
+
+        .expand-btn:hover {
+            opacity: 1;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .expand-btn.rotated {
+            transform: rotate(90deg);
+        }
+        
+        .expand-btn.invisible {
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* SUBTASKS CONTAINER */
+        .subtasks-container {
+            display: none;
+            flex-direction: column;
+            margin-left: 20px;
+            padding-left: 16px;
+            padding-right: 14px;
+            padding-bottom: 12px;
+            border-left: 1px solid var(--vscode-panel-border);
+            animation: slideDown 0.2s ease-out;
+        }
+
+        .subtasks-container.open {
+            display: flex;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .subtask-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            position: relative;
+        }
+        
+        .subtask-item:hover .subtask-delete-btn {
+            opacity: 1;
+        }
+
+        .subtask-input-wrapper {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .subtask-input-wrapper:focus-within {
+            opacity: 1;
+        }
+
+        .subtask-input {
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--vscode-input-border);
+            color: var(--vscode-foreground);
+            font-size: 11px;
+            padding: 4px 0;
+            width: 100%;
+            outline: none;
+            margin-left: 8px;
+        }
+
+        .subtask-input:focus {
+            border-bottom-color: var(--vscode-focusBorder);
         }
 
         /* PRIORITY INDICATORS */
@@ -705,30 +809,44 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
             flex-shrink: 0;
         }
 
-        /* CUSTOM CHECKBOX */
+        /* CUSTOM CHECKBOXES */
         input[type="checkbox"] {
             appearance: none;
-            width: 18px;
-            height: 18px;
             border: 2px solid var(--vscode-icon-foreground);
             border-radius: 50%;
             cursor: pointer;
-            margin-right: 12px;
             display: grid;
             place-content: center;
             transition: all 0.2s;
             flex-shrink: 0;
         }
+        
+        /* Main task checkbox */
+        .main-checkbox {
+            width: 18px;
+            height: 18px;
+            margin-right: 12px;
+        }
+        
+        /* Subtask checkbox */
+        .sub-checkbox {
+            width: 14px;
+            height: 14px;
+            margin-right: 8px;
+            border-width: 1.5px;
+            opacity: 0.8;
+        }
 
         input[type="checkbox"]::before {
             content: "";
-            width: 10px;
-            height: 10px;
             border-radius: 50%;
             transform: scale(0);
             transition: 120ms transform cubic-bezier(0.4, 0, 0.2, 1);
             background: var(--vscode-button-background);
         }
+        
+        .main-checkbox::before { width: 10px; height: 10px; }
+        .sub-checkbox::before { width: 8px; height: 8px; }
 
         input[type="checkbox"]:checked {
             border-color: var(--vscode-button-background);
@@ -753,8 +871,15 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
             line-height: 1.5;
             transition: all 0.3s;
         }
+        
+        .subtask-text {
+            flex: 1;
+            word-break: break-word;
+            text-decoration-color: var(--vscode-descriptionForeground);
+        }
 
-        .completed .task-text {
+        .completed .task-text,
+        .subtask-item.completed .subtask-text {
             text-decoration: line-through;
             opacity: 0.4;
             color: var(--vscode-descriptionForeground);
@@ -774,14 +899,28 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
             justify-content: center;
         }
 
+        li:hover .delete-btn {
+            opacity: 0.6;
+        }
+        
         .delete-btn:hover {
             background: var(--vscode-inputValidation-errorBackground);
             opacity: 1 !important;
             transform: scale(1.1);
         }
-
-        li:hover .delete-btn {
-            opacity: 0.6;
+        
+        .subtask-delete-btn {
+            background: transparent;
+            border: none;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            opacity: 0;
+            padding: 2px;
+            transition: all 0.2s;
+        }
+        
+        .subtask-delete-btn:hover {
+            color: var(--vscode-errorForeground);
         }
 
         /* SCROLLBAR MODERNA */
@@ -931,6 +1070,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
             height: auto;
             margin: 0;
             cursor: pointer;
+            border-radius: 3px;
         }
 
         .checkbox-row {
@@ -1146,39 +1286,75 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
                 const priority = task.priority || 'none';
                 const priorityClass = priority !== 'none' ? \`priority-\${priority}\` : '';
+                const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                 
                 const li = document.createElement('li');
                 li.className = task.done ? 'completed' : '';
+                
+                // Build Subtasks HTML
+                let subtasksHtml = '';
+                if (task.subtasks) {
+                    task.subtasks.forEach((sub, subIndex) => {
+                        subtasksHtml += \`
+                            <div class="subtask-item \${sub.done ? 'completed' : ''}">
+                                <input type="checkbox" class="sub-checkbox" \${sub.done ? 'checked' : ''} onchange="toggleSubtask(\${index}, \${subIndex})">
+                                <span class="subtask-text">\${sub.text}</span>
+                                <button class="subtask-delete-btn" onclick="deleteSubtask(\${index}, \${subIndex})">
+                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        \`;
+                    });
+                }
+
                 li.innerHTML = \`
-                    <input type="checkbox" \${task.done ? 'checked' : ''} onchange="toggleTask(\${index})">
-                    \${priority !== 'none' ? \`<div class="priority-indicator \${priorityClass}"></div>\` : '<div class="priority-indicator" style="opacity: 0;"></div>'}
-                    <span class="task-text" onclick="toggleTask(\${index})">\${task.text}</span>
-                    <div class="priority-menu-wrapper">
-                        <button class="priority-menu-btn" onclick="togglePriorityMenu(event, \${index})" title="Prioridade">...</button>
-                        <div class="priority-menu" data-index="\${index}">
-                            <button class="priority-menu-item" onclick="setPriority(\${index}, 'high')">
-                                <span class="priority-dot priority-high"></span>
-                                Alta
-                            </button>
-                            <button class="priority-menu-item" onclick="setPriority(\${index}, 'medium')">
-                                <span class="priority-dot priority-medium"></span>
-                                Média
-                            </button>
-                            <button class="priority-menu-item" onclick="setPriority(\${index}, 'low')">
-                                <span class="priority-dot priority-low"></span>
-                                Baixa
-                            </button>
-                            <button class="priority-menu-item" onclick="setPriority(\${index}, undefined)">
-                                <span class="priority-dot" style="background: var(--vscode-input-border);"></span>
-                                Sem prioridade
-                            </button>
+                    <div class="task-main-row">
+                        <button class="expand-btn \${task.isExpanded ? 'rotated' : ''} \${!hasSubtasks ? 'invisible' : ''}" onclick="toggleExpand(\${index})">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                            </svg>
+                        </button>
+                        <input type="checkbox" class="main-checkbox" \${task.done ? 'checked' : ''} onchange="toggleTask(\${index})">
+                        \${priority !== 'none' ? \`<div class="priority-indicator \${priorityClass}"></div>\` : '<div class="priority-indicator" style="opacity: 0;"></div>'}
+                        <span class="task-text" onclick="toggleTask(\${index})">\${task.text}</span>
+                        <div class="priority-menu-wrapper">
+                            <button class="priority-menu-btn" onclick="togglePriorityMenu(event, \${index})" title="Prioridade">...</button>
+                            <div class="priority-menu" data-index="\${index}">
+                                <button class="priority-menu-item" onclick="setPriority(\${index}, 'high')">
+                                    <span class="priority-dot priority-high"></span>
+                                    Alta
+                                </button>
+                                <button class="priority-menu-item" onclick="setPriority(\${index}, 'medium')">
+                                    <span class="priority-dot priority-medium"></span>
+                                    Média
+                                </button>
+                                <button class="priority-menu-item" onclick="setPriority(\${index}, 'low')">
+                                    <span class="priority-dot priority-low"></span>
+                                    Baixa
+                                </button>
+                                <button class="priority-menu-item" onclick="setPriority(\${index}, undefined)">
+                                    <span class="priority-dot" style="background: var(--vscode-input-border);"></span>
+                                    Sem prioridade
+                                </button>
+                            </div>
+                        </div>
+                        <button class="delete-btn" onclick="deleteTask(\${index})" title="Excluir">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.75 1.75 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.702-1.576l-.66-6.6a.75.75 0 1 1 1.493-.149Z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="subtasks-container \${task.isExpanded ? 'open' : ''}">
+                        \${subtasksHtml}
+                        <div class="subtask-input-wrapper">
+                            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="opacity: 0.5;">
+                                <path d="M8 0a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2H9v6a1 1 0 1 1-2 0V9H1a1 1 0 0 1 0-2h6V1a1 1 0 0 1 1-1z"/>
+                            </svg>
+                            <input type="text" class="subtask-input" placeholder="Adicionar subtask..." onkeypress="handleSubtaskInput(event, \${index})">
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="deleteTask(\${index})" title="Excluir">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                            <path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.75 1.75 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.702-1.576l-.66-6.6a.75.75 0 1 1 1.493-.149Z"/>
-                        </svg>
-                    </button>
                 \`;
                 taskListEl.appendChild(li);
             });
@@ -1187,7 +1363,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
         function addTask() {
             const text = taskInput.value.trim();
             if (text) {
-                tasks.push({ text, done: false, priority: 'medium' });
+                tasks.push({ text, done: false, priority: 'medium', subtasks: [], isExpanded: true });
                 taskInput.value = '';
                 updateTasks();
             }
@@ -1195,6 +1371,43 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
         window.toggleTask = (index) => {
             tasks[index].done = !tasks[index].done;
+            updateTasks();
+        };
+        
+        window.toggleExpand = (index) => {
+            tasks[index].isExpanded = !tasks[index].isExpanded;
+            updateTasks();
+        };
+
+        window.handleSubtaskInput = (event, parentIndex) => {
+            if (event.key === 'Enter') {
+                const text = event.target.value.trim();
+                if (text) {
+                    if (!tasks[parentIndex].subtasks) {
+                        tasks[parentIndex].subtasks = [];
+                    }
+                    tasks[parentIndex].subtasks.push({ text, done: false });
+                    tasks[parentIndex].isExpanded = true;
+                    event.target.value = '';
+                    updateTasks();
+                    // Keep focus on input after render? 
+                    // Render re-creates DOM, so we'd lose focus. 
+                    // In a simple app, we just re-render.
+                }
+            }
+        };
+        
+        window.toggleSubtask = (parentIndex, subIndex) => {
+            tasks[parentIndex].subtasks[subIndex].done = !tasks[parentIndex].subtasks[subIndex].done;
+            updateTasks();
+        };
+        
+        window.deleteSubtask = (parentIndex, subIndex) => {
+            tasks[parentIndex].subtasks.splice(subIndex, 1);
+            if(tasks[parentIndex].subtasks.length === 0) {
+                 // Optional: collapse if empty
+                 // tasks[parentIndex].isExpanded = false;
+            }
             updateTasks();
         };
 
@@ -1358,7 +1571,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
   private async _getGitHubToken(): Promise<string | null> {
     try {
-      const session = await vscode.authentication.getSession(
+      const session = await (vscode as any).authentication.getSession(
         "github",
         ["gist"],
         { createIfNone: false }
@@ -1372,7 +1585,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
   private async _authenticateGitHub(): Promise<string | null> {
     try {
-      const session = await vscode.authentication.getSession(
+      const session = await (vscode as any).authentication.getSession(
         "github",
         ["gist"],
         { createIfNone: true }
@@ -1386,7 +1599,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
   private async _disconnectGitHub() {
     try {
-      const session = await vscode.authentication.getSession(
+      const session = await (vscode as any).authentication.getSession(
         "github",
         ["gist"],
         { createIfNone: false }
@@ -1558,40 +1771,40 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
     try {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
       const backupDir = workspaceFolder
-        ? vscode.Uri.joinPath(workspaceFolder, ".nokanban-backups")
-        : vscode.Uri.joinPath(
+        ? (vscode.Uri as any).joinPath(workspaceFolder, ".nokanban-backups")
+        : (vscode.Uri as any).joinPath(
             vscode.Uri.file(vscode.env.appRoot),
             ".nokanban-backups"
           );
 
       try {
-        await vscode.workspace.fs.createDirectory(backupDir);
+        await (vscode.workspace as any).fs.createDirectory(backupDir);
       } catch {
         // Diretório já existe
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backupFile = vscode.Uri.joinPath(
+      const backupFile = (vscode.Uri as any).joinPath(
         backupDir,
         `backup-${timestamp}.json`
       );
 
-      await vscode.workspace.fs.writeFile(
+      await (vscode.workspace as any).fs.writeFile(
         backupFile,
         new TextEncoder().encode(JSON.stringify(data, null, 2))
       );
 
       // Manter apenas os últimos 10 backups
-      const files = await vscode.workspace.fs.readDirectory(backupDir);
+      const files = await (vscode.workspace as any).fs.readDirectory(backupDir);
       const backupFiles = files
-        .filter(([name]) => name.startsWith("backup-"))
+        .filter(([name]: [string, any]) => name.startsWith("backup-"))
         .sort()
         .reverse();
 
       if (backupFiles.length > 10) {
         for (const [name] of backupFiles.slice(10)) {
-          await vscode.workspace.fs.delete(
-            vscode.Uri.joinPath(backupDir, name)
+          await (vscode.workspace as any).fs.delete(
+            (vscode.Uri as any).joinPath(backupDir, name)
           );
         }
       }
