@@ -1,78 +1,89 @@
 import * as vscode from "vscode";
-import { TextEncoder, TextDecoder } from "util";
-
-interface QuickNote {
-  id: string;
-  text: string;
-  timestamp: string;
-  tags?: string[];
-}
-
-interface Task {
-  text: string;
-  done: boolean;
-  priority?: string;
-  subtasks?: Task[];
-  isExpanded?: boolean;
-}
-interface StorageData {
-  notepadContent: string;
-  todoList: Task[];
-  quickNotes: QuickNote[];
-}
+import type { Task } from "./types";
+import { getSavedNotes, getSavedTasks } from "./storage";
+import { exportData, importData, type NotifyView } from "./exportImport";
+import {
+  getGitHubToken,
+  authenticateGitHub,
+  disconnectGist,
+  pushToGist,
+  pullFromGist,
+} from "./gistSync";
+import {
+  enableAutoBackup,
+  initializeAutoBackup,
+  performAutoBackup,
+} from "./autoBackup";
+import { sanitizeForJson } from "./webviewHtml";
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new NotepadSidebarProvider(
     vscode.Uri.file(context.extensionPath),
-    context.globalState
+    context.globalState,
   );
 
   context.subscriptions.push(
-    (vscode.window as any).registerWebviewViewProvider(
-      "notepad-sidebar",
-      provider
-    )
+    vscode.window.registerWebviewViewProvider("notepad-sidebar", provider),
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("notepad.clear", () => {
       provider.clearNotes();
-    })
+    }),
   );
 }
 
 class NotepadSidebarProvider {
-  private _view?: any;
-  private _autoBackupInterval?: any;
+  private _view?: vscode.WebviewView;
+  private _autoBackupInterval?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    private readonly _globalState: vscode.Memento
+    private readonly _globalState: vscode.Memento,
   ) {
-    this._initializeAutoBackup();
+    initializeAutoBackup(this._globalState, () => this._scheduleBackup());
+  }
+
+  private _scheduleBackup(): void {
+    if (this._autoBackupInterval) {
+      clearInterval(this._autoBackupInterval);
+      this._autoBackupInterval = undefined;
+    }
+    const enabled = this._globalState.get<boolean>("autoBackupEnabled", false);
+    if (enabled) {
+      const interval = this._globalState.get<number>("autoBackupInterval", 30);
+      this._autoBackupInterval = setInterval(
+        () => {
+          performAutoBackup(this._globalState);
+        },
+        interval * 60 * 1000,
+      );
+    }
+  }
+
+  private _notifyView(command: string, data?: Record<string, unknown>): void {
+    this._view?.webview.postMessage({ command, ...data });
   }
 
   public async resolveWebviewView(
-    webviewView: any,
-    context: any,
-    _token: vscode.CancellationToken
-  ) {
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): Promise<void> {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
 
-    const savedNotes = this._getSavedNotes();
-    const savedTasks = this._getSavedTasks();
+    const savedNotes = getSavedNotes(this._globalState);
+    const savedTasks = getSavedTasks(this._globalState);
     const autoBackupEnabled = this._globalState.get<boolean>(
       "autoBackupEnabled",
-      false
+      false,
     );
     const autoBackupInterval = this._globalState.get<number>(
       "autoBackupInterval",
-      30
+      30,
     );
-
-    // Verificar status de autenticação
-    const isAuthenticated = await this._checkGitHubAuth();
+    const isAuthenticated = (await getGitHubToken()) !== null;
 
     this._updateBadge(savedTasks);
 
@@ -82,7 +93,7 @@ class NotepadSidebarProvider {
       savedTasks,
       autoBackupEnabled,
       autoBackupInterval,
-      isAuthenticated
+      isAuthenticated,
     );
 
     webviewView.webview.onDidReceiveMessage(async (data: any) => {
@@ -99,6 +110,9 @@ class NotepadSidebarProvider {
   }
 
   private async _handleWebviewMessage(data: any): Promise<void> {
+    const notifyView: NotifyView = (cmd, d) =>
+      this._notifyView(cmd, d as Record<string, unknown>);
+
     switch (data.command) {
       case "saveNotes":
         await this._globalState.update("notepadContent", data.text);
@@ -108,33 +122,49 @@ class NotepadSidebarProvider {
         this._updateBadge(data.tasks);
         break;
       case "export":
-        await this._exportData();
+        await exportData(this._globalState, notifyView);
         break;
       case "import":
-        await this._importData();
+        await importData(
+          this._globalState,
+          (tasks) => this._updateBadge(tasks),
+          notifyView,
+        );
         break;
-      case "syncGist":
-        await this._syncGist();
+      case "pushGist":
+        await pushToGist(this._globalState, notifyView);
         break;
-      case "authenticateGist":
-        const token = await this._authenticateGitHub();
+      case "pullGist":
+        await pullFromGist(
+          this._globalState,
+          (tasks) => this._updateBadge(tasks as Task[]),
+          notifyView,
+        );
+        break;
+      case "authenticateGist": {
+        const token = await authenticateGitHub();
         if (token) {
-          vscode.window.showInformationMessage(
-            "Autenticado com GitHub com sucesso!"
-          );
-          if (this._view) {
-            this._view.webview.postMessage({
-              command: "updateAuthStatus",
-              authenticated: true,
-            });
-          }
+          vscode.window.showInformationMessage("Conectado ao GitHub.");
+          this._notifyView("updateAuthStatus", {
+            authenticated: true,
+            lastSyncAt: this._globalState.get<number | null>(
+              "gistLastSyncAt",
+              null,
+            ),
+          });
         }
         break;
+      }
       case "disconnectGist":
-        await this._disconnectGitHub();
+        await disconnectGist(this._globalState, notifyView);
         break;
       case "enableAutoBackup":
-        await this._enableAutoBackup(data.enabled, data.interval);
+        await enableAutoBackup(
+          this._globalState,
+          data.enabled,
+          data.interval,
+          () => this._scheduleBackup(),
+        );
         break;
     }
   }
@@ -149,7 +179,7 @@ class NotepadSidebarProvider {
     }
   }
 
-  private _updateBadge(tasks: any[]) {
+  private _updateBadge(tasks: Task[]): void {
     if (!this._view || !Array.isArray(tasks)) {
       return;
     }
@@ -166,160 +196,21 @@ class NotepadSidebarProvider {
         : undefined;
   }
 
-  private async _importData() {
-    const options: vscode.OpenDialogOptions = {
-      canSelectMany: false,
-      openLabel: "Importar",
-      filters: {
-        "Todos os formatos": ["txt", "md", "json"],
-        Markdown: ["md"],
-        Texto: ["txt"],
-        JSON: ["json"],
-      },
-    };
-
-    const fileUri = await vscode.window.showOpenDialog(options);
-
-    if (fileUri?.[0]) {
-      try {
-        const fileData = await (vscode.workspace as any).fs.readFile(
-          fileUri[0]
-        );
-        const fileContent = new TextDecoder().decode(fileData);
-        const fileName = fileUri[0].fsPath.toLowerCase();
-
-        // Verificar se é JSON
-        if (fileName.endsWith(".json")) {
-          try {
-            const data = JSON.parse(fileContent);
-            if (data.notes !== undefined) {
-              await this._globalState.update(
-                "notepadContent",
-                data.notes || ""
-              );
-            }
-            if (data.tasks !== undefined) {
-              await this._globalState.update("todoList", data.tasks || []);
-              this._updateBadge(data.tasks || []);
-            }
-
-            if (this._view) {
-              this._view.webview.postMessage({
-                command: "updateNotes",
-                text: data.notes || "",
-              });
-              this._view.webview.postMessage({
-                command: "updateTasks",
-                tasks: data.tasks || [],
-              });
-              vscode.window.showInformationMessage(
-                "JSON importado com sucesso!"
-              );
-            }
-          } catch (jsonError) {
-            vscode.window.showErrorMessage(
-              "Erro ao importar JSON. Verifique se o arquivo é válido."
-            );
-          }
-        } else {
-          // Importação de texto normal (TXT/MD)
-          await this._globalState.update("notepadContent", fileContent);
-
-          if (this._view) {
-            this._view.webview.postMessage({
-              command: "updateNotes",
-              text: fileContent,
-            });
-            vscode.window.showInformationMessage("Importado com sucesso!");
-          }
-        }
-      } catch (error) {
-        vscode.window.showErrorMessage("Erro ao ler arquivo.");
-      }
-    }
-  }
-
-  private async _exportData() {
-    const notes = this._getSavedNotes();
-    const tasks = this._getSavedTasks();
-
-    const uri = await vscode.window.showSaveDialog({
-      saveLabel: "Exportar",
-      filters: {
-        "Todos os formatos": ["txt", "md", "json"],
-        Markdown: ["md"],
-        Texto: ["txt"],
-        JSON: ["json"],
-      },
-    });
-
-    if (uri) {
-      const fileName = uri.fsPath.toLowerCase();
-      let content: string;
-      let message: string;
-
-      if (fileName.endsWith(".json")) {
-        // Exportar como JSON
-        const data = {
-          version: "1.0",
-          exportedAt: new Date().toISOString(),
-          notes,
-          tasks,
-        };
-        content = JSON.stringify(data, null, 2);
-        message = "JSON exportado com sucesso!";
-      } else {
-        // Exportar como texto (MD/TXT)
-        content = this._generateExportContent(notes, tasks);
-        message = "Salvo com sucesso!";
-      }
-
-      await (vscode.workspace as any).fs.writeFile(
-        uri,
-        new TextEncoder().encode(content)
-      );
-      vscode.window.showInformationMessage(message);
-    }
-  }
-
-  private _generateExportContent(notes: string, tasks: Task[]): string {
-    const date = new Date().toLocaleDateString("pt-BR");
-    let content = `=== NOTEPAD PRO - ${date} ===\n\n`;
-    content += `--- NOTAS ---\n${notes || "(Vazio)"}\n\n`;
-    content += `--- TAREFAS ---\n`;
-
-    if (!tasks?.length) {
-      content += `(Nenhuma tarefa)\n`;
-    } else {
-      tasks.forEach((t) => {
-        const priority = t.priority ? `[${t.priority.toUpperCase()}] ` : "";
-        content += `[${t.done ? "x" : " "}] ${priority}${t.text}\n`;
-        if (t.subtasks && t.subtasks.length > 0) {
-          t.subtasks.forEach((st) => {
-            content += `    - [${st.done ? "x" : " "}] ${st.text}\n`;
-          });
-        }
-      });
-    }
-
-    return content;
-  }
-
-  private async _checkGitHubAuth(): Promise<boolean> {
-    const token = await this._getGitHubToken();
-    return token !== null;
-  }
-
   private async _getHtmlForWebview(
     webview: vscode.Webview,
     notes: string,
     tasks: any[],
     autoBackupEnabled: boolean = false,
     autoBackupInterval: number = 30,
-    isAuthenticated: boolean = false
+    isAuthenticated: boolean = false,
+    gistLastSyncAt: number | null = null,
   ): Promise<string> {
-    const safeNotes = this._sanitizeForJson(notes);
+    const safeNotes = sanitizeForJson(notes);
     const safeTasks = JSON.stringify(tasks);
+    const safeLastSyncAt =
+      gistLastSyncAt === null || gistLastSyncAt === undefined
+        ? "null"
+        : String(gistLastSyncAt);
 
     return `<!DOCTYPE html>
 <html lang="pt-br">
@@ -1106,6 +997,63 @@ class NotepadSidebarProvider {
         .settings-btn.secondary:hover {
             background: var(--vscode-list-hoverBackground);
         }
+
+        .gist-section .gist-card {
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        .gist-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .gist-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--vscode-descriptionForeground);
+            opacity: 0.6;
+        }
+        .gist-status-dot.connected {
+            background: #3fb950;
+            opacity: 1;
+        }
+        .gist-status-text {
+            color: var(--vscode-foreground);
+        }
+        .gist-last-sync {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            margin-bottom: 12px;
+            min-height: 16px;
+        }
+        .gist-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .gist-actions-sync .gist-sync-btn,
+        .gist-actions-sync .gist-disconnect-btn {
+            flex: 1;
+            min-width: 0;
+            margin-top: 0;
+        }
+        .gist-connect-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+        }
+        .gist-sync-loading {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -1171,20 +1119,26 @@ class NotepadSidebarProvider {
                 <button class="close-btn" id="close-settings">&times;</button>
             </div>
             
-            <div class="settings-section">
-                <h3>Sincronização GitHub Gist</h3>
-                <div class="settings-item">
-                    <p id="auth-status" style="font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 12px;">
-                        Status: Não autenticado
-                    </p>
-                    <button class="settings-btn" id="authenticate-gist-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                        </svg>
-                        Autenticar com GitHub
-                    </button>
-                    <button class="settings-btn secondary" id="disconnect-gist-btn" style="margin-top: 8px; display: none;">Desconectar</button>
-                    <button class="settings-btn secondary" id="sync-gist-btn" style="margin-top: 8px;">Sincronizar Agora</button>
+            <div class="settings-section gist-section">
+                <h3>GitHub Gist</h3>
+                <div class="gist-card">
+                    <div class="gist-status" id="gist-status">
+                        <span class="gist-status-dot" id="gist-status-dot"></span>
+                        <span class="gist-status-text" id="gist-status-text">Desconectado</span>
+                    </div>
+                    <p class="gist-last-sync" id="gist-last-sync"></p>
+                    <div class="gist-actions" id="gist-actions-auth">
+                        <button type="button" class="settings-btn gist-connect-btn" id="authenticate-gist-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                            Conectar com GitHub
+                        </button>
+                    </div>
+                    <div class="gist-actions gist-actions-sync" id="gist-actions-sync" style="display: none;">
+                        <button type="button" class="settings-btn secondary gist-sync-btn" id="push-gist-btn" title="Enviar notas e tarefas para o Gist">Enviar</button>
+                        <button type="button" class="settings-btn secondary gist-sync-btn" id="pull-gist-btn" title="Buscar do Gist">Buscar</button>
+                        <button type="button" class="settings-btn secondary gist-disconnect-btn" id="disconnect-gist-btn">Desconectar</button>
+                    </div>
+                    <p class="gist-sync-loading" id="gist-sync-loading" style="display: none;">Sincronizando…</p>
                 </div>
             </div>
 
@@ -1223,7 +1177,7 @@ class NotepadSidebarProvider {
         // Inicializar configurações
         document.getElementById('auto-backup-checkbox').checked = ${autoBackupEnabled};
         document.getElementById('backup-interval-select').value = '${autoBackupInterval}';
-        updateAuthStatus(${isAuthenticated});
+        updateGistUI(${isAuthenticated}, ${safeLastSyncAt});
 
         notesArea.addEventListener('input', () => {
             vscode.postMessage({ command: 'saveNotes', text: notesArea.value });
@@ -1479,25 +1433,58 @@ class NotepadSidebarProvider {
         document.getElementById('disconnect-gist-btn').addEventListener('click', () => {
             vscode.postMessage({ command: 'disconnectGist' });
         });
-        document.getElementById('sync-gist-btn').addEventListener('click', () => {
-            vscode.postMessage({ command: 'syncGist' });
+        document.getElementById('push-gist-btn').addEventListener('click', () => {
+            vscode.postMessage({ command: 'pushGist' });
+        });
+        document.getElementById('pull-gist-btn').addEventListener('click', () => {
+            vscode.postMessage({ command: 'pullGist' });
         });
         
-        function updateAuthStatus(authenticated) {
-            const statusEl = document.getElementById('auth-status');
-            const authBtn = document.getElementById('authenticate-gist-btn');
-            const disconnectBtn = document.getElementById('disconnect-gist-btn');
-            if (authenticated) {
-                statusEl.textContent = 'Status: Autenticado ✓';
-                statusEl.style.color = 'var(--vscode-textLink-foreground)';
-                authBtn.textContent = 'Reautenticar';
-                disconnectBtn.style.display = 'block';
+        function formatLastSync(ts) {
+            if (ts == null || ts === 0) return '';
+            const diff = Math.floor((Date.now() - ts) / 60000);
+            if (diff < 1) return 'Última sync: agora';
+            if (diff === 1) return 'Última sync: há 1 min';
+            if (diff < 60) return 'Última sync: há ' + diff + ' min';
+            const h = Math.floor(diff / 60);
+            if (h === 1) return 'Última sync: há 1 h';
+            return 'Última sync: há ' + h + ' h';
+        }
+        
+        function setGistLoading(loading) {
+            var loadingEl = document.getElementById('gist-sync-loading');
+            var auth = document.getElementById('gist-actions-auth');
+            var sync = document.getElementById('gist-actions-sync');
+            if (loadingEl) loadingEl.style.display = loading ? 'block' : 'none';
+            if (loading) {
+                if (auth) auth.style.display = 'none';
+                if (sync) sync.style.display = 'none';
             } else {
-                statusEl.textContent = 'Status: Não autenticado';
-                statusEl.style.color = 'var(--vscode-descriptionForeground)';
-                authBtn.textContent = 'Autenticar com GitHub';
-                disconnectBtn.style.display = 'none';
+                var dot = document.getElementById('gist-status-dot');
+                var isConnected = dot && dot.classList.contains('connected');
+                if (auth) auth.style.display = isConnected ? 'none' : 'flex';
+                if (sync) sync.style.display = isConnected ? 'flex' : 'none';
             }
+        }
+        
+        function updateGistUI(authenticated, lastSyncAt) {
+            var dot = document.getElementById('gist-status-dot');
+            var text = document.getElementById('gist-status-text');
+            var lastSync = document.getElementById('gist-last-sync');
+            var auth = document.getElementById('gist-actions-auth');
+            var sync = document.getElementById('gist-actions-sync');
+            if (authenticated) {
+                if (dot) dot.classList.add('connected');
+                if (text) text.textContent = 'Conectado ao GitHub';
+                if (auth) auth.style.display = 'none';
+                if (sync) sync.style.display = 'flex';
+            } else {
+                if (dot) dot.classList.remove('connected');
+                if (text) text.textContent = 'Desconectado';
+                if (auth) auth.style.display = 'flex';
+                if (sync) sync.style.display = 'none';
+            }
+            if (lastSync) lastSync.textContent = formatLastSync(lastSyncAt);
         }
         document.getElementById('auto-backup-checkbox').addEventListener('change', (e) => {
             const enabled = e.target.checked;
@@ -1554,263 +1541,21 @@ class NotepadSidebarProvider {
                 renderTasks();
             }
             if (msg.command === 'updateAuthStatus') {
-                updateAuthStatus(msg.authenticated);
+                updateGistUI(msg.authenticated, msg.lastSyncAt != null ? msg.lastSyncAt : null);
+            }
+            if (msg.command === 'syncStarted') {
+                setGistLoading(true);
+            }
+            if (msg.command === 'syncDone') {
+                setGistLoading(false);
+                updateGistUI(true, msg.lastSyncAt != null ? msg.lastSyncAt : null);
+            }
+            if (msg.command === 'syncError') {
+                setGistLoading(false);
             }
         });
     </script>
 </body>
 </html>`;
-  }
-
-  private _sanitizeForJson(text: string): string {
-    return text
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "\\n");
-  }
-
-  private async _getGitHubToken(): Promise<string | null> {
-    try {
-      const session = await (vscode as any).authentication.getSession(
-        "github",
-        ["gist"],
-        { createIfNone: false }
-      );
-      return session?.accessToken || null;
-    } catch (error) {
-      console.error("Erro ao obter token do GitHub:", error);
-      return null;
-    }
-  }
-
-  private async _authenticateGitHub(): Promise<string | null> {
-    try {
-      const session = await (vscode as any).authentication.getSession(
-        "github",
-        ["gist"],
-        { createIfNone: true }
-      );
-      return session?.accessToken || null;
-    } catch (error) {
-      vscode.window.showErrorMessage(`Erro ao autenticar com GitHub: ${error}`);
-      return null;
-    }
-  }
-
-  private async _disconnectGitHub() {
-    try {
-      const session = await (vscode as any).authentication.getSession(
-        "github",
-        ["gist"],
-        { createIfNone: false }
-      );
-
-      if (session) {
-        // Remover o Gist ID salvo
-        await this._globalState.update("gistId", undefined);
-
-        // Tentar remover a sessão (pode não estar disponível em todas as versões do VS Code)
-        // O usuário pode precisar fazer logout manualmente nas configurações do VS Code
-        vscode.window.showInformationMessage(
-          "Desconectado com sucesso! O Gist ID foi removido. Para remover completamente a autenticação, vá em Configurações > Contas."
-        );
-
-        if (this._view) {
-          this._view.webview.postMessage({
-            command: "updateAuthStatus",
-            authenticated: false,
-          });
-        }
-      } else {
-        vscode.window.showInformationMessage("Você não está autenticado.");
-      }
-    } catch (error) {
-      vscode.window.showErrorMessage(`Erro ao desconectar: ${error}`);
-    }
-  }
-
-  private async _syncGist() {
-    let token = await this._getGitHubToken();
-    if (!token) {
-      const authenticate = await vscode.window.showWarningMessage(
-        "Você precisa autenticar com GitHub para sincronizar. Deseja autenticar agora?",
-        "Sim",
-        "Não"
-      );
-      if (authenticate === "Sim") {
-        token = await this._authenticateGitHub();
-        if (!token) {
-          return;
-        }
-      } else {
-        return;
-      }
-    }
-
-    const gistId = this._globalState.get<string>("gistId");
-    const notes = this._getSavedNotes();
-    const tasks = this._getSavedTasks();
-
-    try {
-      const data = {
-        version: "1.0",
-        syncedAt: new Date().toISOString(),
-        notes,
-        tasks,
-      };
-
-      if (gistId) {
-        // Atualizar Gist existente
-        await this._updateGist(token, gistId, data);
-        vscode.window.showInformationMessage("Sincronizado com sucesso!");
-      } else {
-        // Criar novo Gist
-        const newGistId = await this._createGist(token, data);
-        await this._globalState.update("gistId", newGistId);
-        vscode.window.showInformationMessage(
-          "Gist criado e sincronizado com sucesso!"
-        );
-      }
-    } catch (error: any) {
-      vscode.window.showErrorMessage(
-        `Erro ao sincronizar: ${error.message || "Erro desconhecido"}`
-      );
-    }
-  }
-
-  private async _createGist(token: string, data: any): Promise<string> {
-    const response = await fetch("https://api.github.com/gists", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "NoKanban-VSCode-Extension",
-        Accept: "application/vnd.github+json",
-      },
-      body: JSON.stringify({
-        description: "NoKanban Backup",
-        public: false,
-        files: {
-          "notepad-backup.json": {
-            content: JSON.stringify(data, null, 2),
-          },
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const error = (await response.json()) as { message?: string };
-      throw new Error(error.message || "Erro ao criar Gist");
-    }
-
-    const gist = (await response.json()) as { id: string };
-    return gist.id;
-  }
-
-  private async _updateGist(token: string, gistId: string, data: any) {
-    const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "User-Agent": "NoKanban-VSCode-Extension",
-        Accept: "application/vnd.github+json",
-      },
-      body: JSON.stringify({
-        description: "NoKanban Backup",
-        files: {
-          "notepad-backup.json": {
-            content: JSON.stringify(data, null, 2),
-          },
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const error = (await response.json()) as { message?: string };
-      throw new Error(error.message || "Erro ao atualizar Gist");
-    }
-  }
-
-  private async _enableAutoBackup(enabled: boolean, intervalMinutes: number) {
-    await this._globalState.update("autoBackupEnabled", enabled);
-    await this._globalState.update("autoBackupInterval", intervalMinutes);
-
-    if (this._autoBackupInterval) {
-      clearInterval(this._autoBackupInterval);
-      this._autoBackupInterval = undefined;
-    }
-
-    if (enabled) {
-      const intervalMs = intervalMinutes * 60 * 1000;
-      this._autoBackupInterval = setInterval(() => {
-        this._performAutoBackup();
-      }, intervalMs);
-    }
-  }
-
-  private async _initializeAutoBackup() {
-    const enabled = this._globalState.get<boolean>("autoBackupEnabled", false);
-    const interval = this._globalState.get<number>("autoBackupInterval", 30);
-
-    if (enabled) {
-      await this._enableAutoBackup(true, interval);
-    }
-  }
-
-  private async _performAutoBackup() {
-    const notes = this._getSavedNotes();
-    const tasks = this._getSavedTasks();
-    const data = {
-      version: "1.0",
-      backedUpAt: new Date().toISOString(),
-      notes,
-      tasks,
-    };
-
-    try {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-      const backupDir = workspaceFolder
-        ? (vscode.Uri as any).joinPath(workspaceFolder, ".nokanban-backups")
-        : (vscode.Uri as any).joinPath(
-            vscode.Uri.file(vscode.env.appRoot),
-            ".nokanban-backups"
-          );
-
-      try {
-        await (vscode.workspace as any).fs.createDirectory(backupDir);
-      } catch {
-        // Diretório já existe
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backupFile = (vscode.Uri as any).joinPath(
-        backupDir,
-        `backup-${timestamp}.json`
-      );
-
-      await (vscode.workspace as any).fs.writeFile(
-        backupFile,
-        new TextEncoder().encode(JSON.stringify(data, null, 2))
-      );
-
-      // Manter apenas os últimos 10 backups
-      const files = await (vscode.workspace as any).fs.readDirectory(backupDir);
-      const backupFiles = files
-        .filter(([name]: [string, any]) => name.startsWith("backup-"))
-        .sort()
-        .reverse();
-
-      if (backupFiles.length > 10) {
-        for (const [name] of backupFiles.slice(10)) {
-          await (vscode.workspace as any).fs.delete(
-            (vscode.Uri as any).joinPath(backupDir, name)
-          );
-        }
-      }
-    } catch (error) {
-      // Silenciosamente falha no backup automático
-      console.error("Erro no backup automático:", error);
-    }
   }
 }

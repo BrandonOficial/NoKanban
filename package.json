@@ -1,7 +1,7 @@
 {
   "name": "nokanban",
   "displayName": "NoKanban",
-  "description": "notepad extesion",
+  "description": "Notepad extension with tasks and notes",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.106.1"
