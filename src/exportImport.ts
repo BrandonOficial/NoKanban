@@ -1,12 +1,11 @@
 import * as vscode from "vscode";
 import { TextEncoder, TextDecoder } from "util";
 import type { Task } from "./types";
-import { getSavedNotes, getSavedTasks } from "./storage";
+import { getSavedTasks } from "./storage";
 
-export function generateExportContent(notes: string, tasks: Task[]): string {
+export function generateExportContent(tasks: Task[]): string {
   const date = new Date().toLocaleDateString("pt-BR");
   let content = `=== NOTEPAD PRO - ${date} ===\n\n`;
-  content += `--- NOTAS ---\n${notes || "(Vazio)"}\n\n`;
   content += `--- TAREFAS ---\n`;
 
   if (!tasks?.length) {
@@ -15,6 +14,12 @@ export function generateExportContent(notes: string, tasks: Task[]): string {
     tasks.forEach((t) => {
       const priority = t.priority ? `[${t.priority.toUpperCase()}] ` : "";
       content += `[${t.done ? "x" : " "}] ${priority}${t.text}\n`;
+
+      // Adicionando a nota da tarefa na exportação de texto
+      if (t.note && t.note.trim() !== "") {
+        content += `    📝 Nota: ${t.note.replace(/\n/g, "\n      ")}\n`;
+      }
+
       if (t.subtasks && t.subtasks.length > 0) {
         t.subtasks.forEach((st) => {
           content += `    - [${st.done ? "x" : " "}] ${st.text}\n`;
@@ -35,7 +40,6 @@ export async function exportData(
   state: vscode.Memento,
   notifyView?: NotifyView,
 ): Promise<void> {
-  const notes = getSavedNotes(state);
   const tasks = getSavedTasks(state);
 
   const uri = await vscode.window.showSaveDialog({
@@ -48,7 +52,9 @@ export async function exportData(
     },
   });
 
-  if (!uri) return;
+  if (!uri) {
+    return;
+  }
 
   const fileName = uri.fsPath.toLowerCase();
   let content: string;
@@ -56,15 +62,14 @@ export async function exportData(
 
   if (fileName.endsWith(".json")) {
     const data = {
-      version: "1.0",
+      version: "2.0",
       exportedAt: new Date().toISOString(),
-      notes,
       tasks,
     };
     content = JSON.stringify(data, null, 2);
     message = "JSON exportado com sucesso!";
   } else {
-    content = generateExportContent(notes, tasks);
+    content = generateExportContent(tasks);
     message = "Salvo com sucesso!";
   }
 
@@ -81,16 +86,15 @@ export async function importData(
     canSelectMany: false,
     openLabel: "Importar",
     filters: {
-      "Todos os formatos": ["txt", "md", "json"],
-      Markdown: ["md"],
-      Texto: ["txt"],
-      JSON: ["json"],
+      "JSON (Recomendado)": ["json"],
     },
   };
 
   const fileUri = await vscode.window.showOpenDialog(options);
 
-  if (!fileUri?.[0]) return;
+  if (!fileUri?.[0]) {
+    return;
+  }
 
   try {
     const fileData = await vscode.workspace.fs.readFile(fileUri[0]);
@@ -100,25 +104,17 @@ export async function importData(
     if (fileName.endsWith(".json")) {
       try {
         const data = JSON.parse(fileContent);
-        if (data.notes !== undefined) {
-          await state.update("notepadContent", data.notes || "");
-        }
         if (data.tasks !== undefined) {
           await state.update("todoList", data.tasks || []);
           updateBadge(data.tasks || []);
         }
-        notifyView?.("updateNotes", { text: data.notes || "" });
         notifyView?.("updateTasks", { tasks: data.tasks || [] });
-        vscode.window.showInformationMessage("JSON importado com sucesso!");
+        vscode.window.showInformationMessage("Tarefas importadas com sucesso!");
       } catch {
         vscode.window.showErrorMessage(
           "Erro ao importar JSON. Verifique se o arquivo é válido.",
         );
       }
-    } else {
-      await state.update("notepadContent", fileContent);
-      notifyView?.("updateNotes", { text: fileContent });
-      vscode.window.showInformationMessage("Importado com sucesso!");
     }
   } catch {
     vscode.window.showErrorMessage("Erro ao ler arquivo.");

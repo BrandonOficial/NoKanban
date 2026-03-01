@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getSavedNotes, getSavedTasks } from "./storage";
+import { getSavedTasks } from "./storage";
 import type { NotifyView } from "./exportImport";
 
 const GITHUB_AUTH_PROVIDER = "github";
@@ -39,7 +39,8 @@ function parseApiError(response: Response, body: unknown): string {
   if (response.status >= 500) {
     return "GitHub temporariamente indisponível. Tente em alguns minutos.";
   }
-  return `Erro ${response.status}`;
+
+  return `Erro HTTP ${response.status}`;
 }
 
 export async function getGitHubToken(): Promise<string | null> {
@@ -80,11 +81,10 @@ export async function disconnectGist(
   vscode.window.showInformationMessage("Desconectado do Gist.");
 }
 
-/** Busca o conteúdo atual do Gist (para pull). */
 async function fetchGist(
   token: string,
   gistId: string,
-): Promise<{ notes: string; tasks: unknown[] } | null> {
+): Promise<{ tasks: unknown[] } | null> {
   const response = await fetch(`https://api.github.com/gists/${gistId}`, {
     method: "GET",
     headers: authHeader(token),
@@ -103,20 +103,13 @@ async function fetchGist(
   }
 
   try {
-    const data = JSON.parse(file.content) as {
-      notes?: string;
-      tasks?: unknown[];
-    };
-    return {
-      notes: typeof data.notes === "string" ? data.notes : "",
-      tasks: Array.isArray(data.tasks) ? data.tasks : [],
-    };
+    const data = JSON.parse(file.content) as { tasks?: unknown[] };
+    return { tasks: Array.isArray(data.tasks) ? data.tasks : [] };
   } catch {
     throw new Error("Conteúdo do Gist inválido.");
   }
 }
 
-/** Envia dados locais para o Gist (push). */
 async function putGist(
   token: string,
   gistId: string | undefined,
@@ -154,19 +147,31 @@ async function putGist(
   if (!response.ok) {
     throw new Error(parseApiError(response, body));
   }
+
   const gist = body as { id?: string };
   if (typeof gist.id !== "string") {
     throw new Error("Resposta inválida do GitHub.");
   }
+
   return gist.id;
 }
 
+/**
+ * Envia as tarefas para o GitHub Gist.
+ * @param silent Se 'true', não exibe pop-ups nem pede autenticação (falha em silêncio).
+ */
 export async function pushToGist(
   state: vscode.Memento,
   notifyView?: NotifyView,
+  silent: boolean = false,
 ): Promise<void> {
   let token = await getGitHubToken();
+
   if (!token) {
+    if (silent) {
+      return;
+    } // Se for automático e não tem token, aborta silenciosamente.
+
     const choice = await vscode.window.showWarningMessage(
       "Conecte-se ao GitHub para enviar seus dados.",
       "Conectar",
@@ -175,6 +180,7 @@ export async function pushToGist(
     if (choice !== "Conectar") {
       return;
     }
+
     token = await authenticateGitHub();
     if (!token) {
       return;
@@ -183,66 +189,99 @@ export async function pushToGist(
   }
 
   const gistId = state.get<string>("gistId");
-  const notes = getSavedNotes(state);
   const tasks = getSavedTasks(state);
   const data = {
-    version: "1.0",
+    version: "2.0",
     syncedAt: new Date().toISOString(),
-    notes,
     tasks,
   };
 
   try {
-    notifyView?.("syncStarted", {});
+    if (!silent) {
+      notifyView?.("syncStarted", {});
+    }
+
     const newOrExistingId = await putGist(token, gistId, data);
     if (!gistId) {
       await state.update("gistId", newOrExistingId);
     }
+
     const lastSyncAt = Date.now();
     await state.update("gistLastSyncAt", lastSyncAt);
+
     notifyView?.("syncDone", { lastSyncAt });
-    vscode.window.showInformationMessage("Dados enviados para o Gist.");
+
+    if (!silent) {
+      vscode.window.showInformationMessage(
+        "Dados enviados para o Gist com sucesso.",
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    notifyView?.("syncError", { message });
-    vscode.window.showErrorMessage(`Falha ao enviar: ${message}`);
+    if (!silent) {
+      notifyView?.("syncError", { message });
+      vscode.window.showErrorMessage(`Falha ao enviar: ${message}`);
+    } else {
+      console.error(`NoKanban - Falha silenciosa no Gist Push: ${message}`);
+    }
   }
 }
 
+/**
+ * Baixa as tarefas do GitHub Gist.
+ * @param silent Se 'true', não exibe pop-ups (falha em silêncio).
+ */
 export async function pullFromGist(
   state: vscode.Memento,
   updateBadge: (tasks: unknown[]) => void,
   notifyView?: NotifyView,
+  silent: boolean = false,
 ): Promise<void> {
   const token = await getGitHubToken();
   if (!token) {
-    vscode.window.showWarningMessage("Conecte-se ao GitHub antes de buscar.");
+    if (!silent) {
+      vscode.window.showWarningMessage("Conecte-se ao GitHub antes de buscar.");
+    }
     return;
   }
 
   const gistId = state.get<string>("gistId");
   if (!gistId) {
+    if (!silent) {
+    }
     vscode.window.showInformationMessage(
-      "Nenhum Gist vinculado. Envie seus dados primeiro (Enviar para nuvem).",
+      "Nenhum Gist vinculado. Envie seus dados primeiro.",
     );
     return;
   }
 
   try {
-    notifyView?.("syncStarted", {});
-    const { notes, tasks } = await fetchGist(token, gistId);
-    await state.update("notepadContent", notes);
+    if (!silent) {
+      notifyView?.("syncStarted", {});
+    }
+
+    const { tasks } = await fetchGist(token, gistId);
     await state.update("todoList", tasks);
     updateBadge(tasks);
+
     const lastSyncAt = Date.now();
     await state.update("gistLastSyncAt", lastSyncAt);
-    notifyView?.("updateNotes", { text: notes });
+
     notifyView?.("updateTasks", { tasks });
     notifyView?.("syncDone", { lastSyncAt });
-    vscode.window.showInformationMessage("Dados buscados do Gist.");
+
+    if (!silent) {
+      vscode.window.showInformationMessage(
+        "Dados buscados do Gist com sucesso.",
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    notifyView?.("syncError", { message });
-    vscode.window.showErrorMessage(`Falha ao buscar: ${message}`);
+    if (!silent) {
+      notifyView?.("syncError", { message });
+      vscode.window.showErrorMessage(`Falha ao buscar: ${message}`);
+    } else {
+      console.error(`NoKanban - Falha silenciosa no Gist Pull: ${message}`);
+    }
   }
 }

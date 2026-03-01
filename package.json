@@ -1,22 +1,51 @@
 {
   "name": "nokanban",
   "displayName": "NoKanban",
-  "description": "Notepad extension with tasks and notes",
-  "version": "0.0.1",
-  "engines": {
-    "vscode": "^1.106.1"
+  "description": "Gerenciamento de tarefas, Pomodoro e anotações minimalistas direto na Sidebar do seu VS Code.",
+  "version": "0.0.2",
+  "publisher": "nokanban-dev",
+  "icon": "assets/Logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrandonOficial/nokanban"
   },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "extensionDependencies": [
+    "vscode.github-authentication"
+  ],
   "categories": [
     "Other"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "NoKanban",
+      "properties": {
+        "nokanban.discordWebhookUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL do Webhook do Discord para sincronizar as tarefas deste projeto."
+        },
+        "nokanban.telegramBotToken": {
+          "type": "string",
+          "default": "",
+          "description": "Token do Bot do Telegram (gerado via @BotFather)."
+        },
+        "nokanban.telegramChatId": {
+          "type": "string",
+          "default": "",
+          "description": "ID do Chat ou Grupo do Telegram para onde enviar o status."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {
           "id": "notepad-container",
-          "title": "Notepad Pro",
-          "icon": "dev.png"
+          "title": "Nokanban",
+          "icon": "assets/Logo.png"
         }
       ]
     },
@@ -26,7 +55,7 @@
           "type": "webview",
           "id": "notepad-sidebar",
           "name": "Anotações Rápidas",
-          "icon": "dev.png"
+          "icon": "assets/logo.svg"
         }
       ]
     },
@@ -34,12 +63,10 @@
       {
         "command": "notepad.clear",
         "title": "Limpar Notas"
-      }
-    ],
-    "authentication": [
+      },
       {
-        "id": "github",
-        "label": "GitHub"
+        "command": "nokanban.sendReport",
+        "title": "NoKanban: Enviar Status Report"
       }
     ]
   },
@@ -55,16 +82,16 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.106.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "typescript-eslint": "^8.46.3",
-    "eslint": "^9.39.1",
-    "typescript": "^5.9.3",
-    "ts-loader": "^9.5.4",
-    "webpack": "^5.102.1",
-    "webpack-cli": "^6.0.1",
+    "@types/vscode": "^1.105.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.1",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "webpack": "^5.102.1",
+    "webpack-cli": "^6.0.1"
   }
 }

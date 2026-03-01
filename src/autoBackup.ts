@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { TextEncoder } from "util";
-import { getSavedNotes, getSavedTasks } from "./storage";
+import { getSavedTasks } from "./storage";
+import type { Task } from "./types";
 
 const BACKUP_DIR_NAME = ".nokanban-backups";
 const MAX_BACKUPS = 10;
@@ -26,54 +27,63 @@ export function initializeAutoBackup(
   }
 }
 
-export async function performAutoBackup(state: vscode.Memento): Promise<void> {
-  const notes = getSavedNotes(state);
-  const tasks = getSavedTasks(state);
-  const data = {
-    version: "1.0",
-    backedUpAt: new Date().toISOString(),
-    notes,
-    tasks,
-  };
+async function getOrCreateBackupDirectory(): Promise<vscode.Uri> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const backupDir = workspaceFolder
+    ? vscode.Uri.joinPath(workspaceFolder, BACKUP_DIR_NAME)
+    : vscode.Uri.joinPath(vscode.Uri.file(vscode.env.appRoot), BACKUP_DIR_NAME);
 
   try {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-    const backupDir = workspaceFolder
-      ? vscode.Uri.joinPath(workspaceFolder, BACKUP_DIR_NAME)
-      : vscode.Uri.joinPath(
-          vscode.Uri.file(vscode.env.appRoot),
-          BACKUP_DIR_NAME,
-        );
+    await vscode.workspace.fs.stat(backupDir);
+  } catch {
+    await vscode.workspace.fs.createDirectory(backupDir);
+  }
 
-    try {
-      await vscode.workspace.fs.createDirectory(backupDir);
-    } catch {
-      // Diretório já existe
+  return backupDir;
+}
+
+async function cleanupOldBackups(backupDir: vscode.Uri): Promise<void> {
+  const files = await vscode.workspace.fs.readDirectory(backupDir);
+  const backupFiles = files
+    .filter(([name]) => name.startsWith("backup-") && name.endsWith(".json"))
+    .sort()
+    .reverse();
+
+  if (backupFiles.length > MAX_BACKUPS) {
+    const filesToDelete = backupFiles.slice(MAX_BACKUPS);
+    for (const [name] of filesToDelete) {
+      await vscode.workspace.fs.delete(vscode.Uri.joinPath(backupDir, name));
+    }
+  }
+}
+
+export async function performAutoBackup(state: vscode.Memento): Promise<void> {
+  try {
+    const tasks = getSavedTasks(state);
+
+    // Clean Code: Se não tem tarefas, não faz sentido gerar um backup vazio de 30 em 30 min.
+    if (!tasks || tasks.length === 0) {
+      return;
     }
 
+    const backupDir = await getOrCreateBackupDirectory();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupFile = vscode.Uri.joinPath(
       backupDir,
       `backup-${timestamp}.json`,
     );
 
-    await vscode.workspace.fs.writeFile(
-      backupFile,
-      new TextEncoder().encode(JSON.stringify(data, null, 2)),
-    );
+    const data = {
+      version: "2.0",
+      backedUpAt: new Date().toISOString(),
+      tasks,
+    };
 
-    const files = await vscode.workspace.fs.readDirectory(backupDir);
-    const backupFiles = files
-      .filter(([name]) => name.startsWith("backup-"))
-      .sort()
-      .reverse();
+    const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
+    await vscode.workspace.fs.writeFile(backupFile, content);
 
-    if (backupFiles.length > MAX_BACKUPS) {
-      for (const [name] of backupFiles.slice(MAX_BACKUPS)) {
-        await vscode.workspace.fs.delete(vscode.Uri.joinPath(backupDir, name));
-      }
-    }
+    await cleanupOldBackups(backupDir);
   } catch (error) {
-    console.error("Erro no backup automático:", error);
+    console.error("NoKanban - Erro ao executar o backup local:", error);
   }
 }
