@@ -658,36 +658,6 @@ console.error("NoKanban: Erro ao executar", error);
 
 ---
 
-## 🗺️ Roadmap
-
-### v1.1.0 - Performance & Polish
-- [ ] Lazy loading de tarefas (virtualização)
-- [ ] Debounce na busca/filtros
-- [ ] Testes unitários com 80%+ cobertura
-- [ ] Telemetria anônima opcional
-
-### v1.2.0 - Collaboration
-- [ ] Real-time sync via WebSockets
-- [ ] Comentários em tarefas
-- [ ] Atribuição de responsáveis
-- [ ] Activity feed
-
-### v1.3.0 - Advanced Features
-- [ ] Gantt chart visualization
-- [ ] Time tracking integrado
-- [ ] Drag & drop para reordenação
-- [ ] Tags customizáveis
-- [ ] Filtros avançados (regex, saved filters)
-
-### v2.0.0 - Enterprise
-- [ ] API REST para integrações
-- [ ] Webhooks customizáveis
-- [ ] SSO / LDAP support
-- [ ] Audit logs
-- [ ] Multi-workspace support
-
----
-
 ## 🤝 Contribuindo
 
 Contribuições são muito bem-vindas! Por favor, siga estas diretrizes:
