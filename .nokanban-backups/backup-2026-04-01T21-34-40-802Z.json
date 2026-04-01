@@ -1,0 +1,14 @@
+{
+  "version": "2.0",
+  "backedUpAt": "2026-04-01T21:34:40.802Z",
+  "tasks": [
+    {
+      "text": "Layout e UX: Podemos dar um tapa no src/webviewHtml.ts. Atualmente ele usa uma estrutura de abas e um modal de configurações. Podemos aplicar composições de UI mais modernas ou simplificar a interação com as subtarefas.",
+      "done": false,
+      "subtasks": [],
+      "isExpanded": true,
+      "note": "Sistema de Cache: Hoje você usa o vscode.Memento para persistência. Podemos discutir como tornar isso mais eficiente ou adicionar uma camada de estado local para evitar leituras excessivas.",
+      "isNoteExpanded": true
+    }
+  ]
+}
