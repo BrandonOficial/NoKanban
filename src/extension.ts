@@ -9,41 +9,31 @@ import {
   pushToGist,
   pullFromGist,
 } from "./gistSync";
-import {
-  enableAutoBackup,
-  initializeAutoBackup,
-  performAutoBackup,
-} from "./autoBackup";
+import { enableAutoBackup, initializeAutoBackup, performAutoBackup } from "./autoBackup";
 import { getWebviewContent } from "./webviewHtml";
-import { syncProjectToDiscord } from "./discordSync";
-import { syncProjectToTelegram } from "./telegramSync";
 import { NotificationService } from "./NotificationService";
 
 export function activate(context: vscode.ExtensionContext) {
-  let sendReportCmd = vscode.commands.registerCommand(
-    "nokanban.sendReport",
-    async () => {
-      const notificationService = new NotificationService();
+  // Injeção de dependência central do serviço
+  const notificationService = new NotificationService();
 
-      const message =
-        "✅ *Status Report:* Mais uma task concluída no NoKanban! 🔥";
-      await notificationService.sendProjectStatus(message);
+  let sendReportCmd = vscode.commands.registerCommand("nokanban.sendReport", async () => {
+    const message = "✅ *Status Report:* Mais uma task concluída no NoKanban! 🔥";
+    await notificationService.sendProjectStatus(message);
+    vscode.window.showInformationMessage("NoKanban: Status enviado para o time!");
+  });
 
-      vscode.window.showInformationMessage(
-        "NoKanban: Status enviado para o time!",
-      );
-    },
-  );
   const provider = new NotepadSidebarProvider(
     context.globalState,
     context.workspaceState,
+    context.globalStorageUri,
+    notificationService,
   );
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("notepad-sidebar", provider),
-    vscode.commands.registerCommand("notepad.clear", () =>
-      provider.clearNotes(),
-    ),
+    vscode.commands.registerCommand("notepad.clear", () => provider.clearNotes()),
+    sendReportCmd,
   );
 }
 
@@ -54,31 +44,26 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _globalState: vscode.Memento,
     private readonly _workspaceState: vscode.Memento,
+    private readonly _globalStorageUri: vscode.Uri,
+    private readonly _notificationService: NotificationService,
   ) {
     initializeAutoBackup(this._globalState, () => this._scheduleBackup());
   }
 
   private get _taskState(): vscode.Memento {
-    if (
-      vscode.workspace.workspaceFolders &&
-      vscode.workspace.workspaceFolders.length > 0
-    ) {
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
       return this._workspaceState;
     }
     return this._globalState;
   }
 
-  public async resolveWebviewView(
-    webviewView: vscode.WebviewView,
-  ): Promise<void> {
+  public async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
 
     await this._renderWebview();
 
-    webviewView.webview.onDidReceiveMessage((data) =>
-      this._handleWebviewMessage(data),
-    );
+    webviewView.webview.onDidReceiveMessage((data) => this._handleWebviewMessage(data));
   }
 
   private async _renderWebview(): Promise<void> {
@@ -88,22 +73,12 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
     const tasks = getSavedTasks(this._taskState);
 
-    const autoBackupEnabled = this._globalState.get<boolean>(
-      "autoBackupEnabled",
-      false,
-    );
-    const autoBackupInterval = this._globalState.get<number>(
-      "autoBackupInterval",
-      30,
-    );
+    const autoBackupEnabled = this._globalState.get<boolean>("autoBackupEnabled", false);
+    const autoBackupInterval = this._globalState.get<number>("autoBackupInterval", 30);
     const isAuthenticated = (await getGitHubToken()) !== null;
 
-    const gistLastSyncAt = this._taskState.get<number | null>(
-      "gistLastSyncAt",
-      null,
-    );
+    const gistLastSyncAt = this._taskState.get<number | null>("gistLastSyncAt", null);
 
-    // CORREÇÃO AQUI: Lendo as configurações antes de injetar no HTML
     const config = vscode.workspace.getConfiguration();
     const discordUrl = config.get<string>("nokanban.discordWebhookUrl", "");
     const telegramToken = config.get<string>("nokanban.telegramBotToken", "");
@@ -116,7 +91,6 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
       autoBackupInterval,
       isAuthenticated,
       gistLastSyncAt,
-      // Passando as variáveis recém-declaradas para o HTML
       discordUrl,
       telegramToken,
       telegramChatId,
@@ -136,10 +110,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const intervalMinutes = this._globalState.get<number>(
-      "autoBackupInterval",
-      30,
-    );
+    const intervalMinutes = this._globalState.get<number>("autoBackupInterval", 30);
 
     this._autoBackupInterval = setInterval(
       () => this._runBackgroundSyncs(),
@@ -149,67 +120,38 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
   private async _runBackgroundSyncs(): Promise<void> {
     try {
-      await performAutoBackup(this._taskState);
+      // Passando a URI segura injetada
+      await performAutoBackup(this._taskState, this._globalStorageUri);
 
       const hasGitHubToken = (await getGitHubToken()) !== null;
       if (hasGitHubToken) {
         await pushToGist(this._taskState, undefined, true);
       }
 
-      // CORREÇÃO AQUI: Código de background sync limpo de volta ao original
-      const config = vscode.workspace.getConfiguration();
-      const discordUrl = config.get<string>("nokanban.discordWebhookUrl");
-      if (discordUrl && discordUrl.trim() !== "") {
-        await syncProjectToDiscord(this._taskState, true);
-      }
-
-      const telegramToken = config.get<string>("nokanban.telegramBotToken");
-      const telegramChatId = config.get<string>("nokanban.telegramChatId");
-      if (
-        telegramToken &&
-        telegramChatId &&
-        telegramToken.trim() !== "" &&
-        telegramChatId.trim() !== ""
-      ) {
-        await syncProjectToTelegram(this._taskState, true);
-      }
+      // Delegação robusta pro nosso Service unificado (Clean Code)
+      await this._notificationService.syncProjectToDiscord(this._taskState, true);
+      await this._notificationService.syncProjectToTelegram(this._taskState, true);
     } catch (error) {
       console.error("NoKanban: Falha no sincronismo em background", error);
     }
   }
 
   private async _handleWebviewMessage(data: any): Promise<void> {
-    const notifyView: NotifyView = (cmd, d) =>
-      this._notifyView(cmd, d as Record<string, unknown>);
+    const notifyView: NotifyView = (cmd, d) => this._notifyView(cmd, d as Record<string, unknown>);
 
     switch (data.command) {
       case "saveConfig":
         try {
           const configToUpdate = vscode.workspace.getConfiguration();
-
-          // CLEAN CODE: Define dinamicamente o escopo de salvamento.
           const hasWorkspace =
-            vscode.workspace.workspaceFolders &&
-            vscode.workspace.workspaceFolders.length > 0;
+            vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
           const target = hasWorkspace
             ? vscode.ConfigurationTarget.Workspace
             : vscode.ConfigurationTarget.Global;
 
-          await configToUpdate.update(
-            "nokanban.discordWebhookUrl",
-            data.discordUrl,
-            target,
-          );
-          await configToUpdate.update(
-            "nokanban.telegramBotToken",
-            data.telegramToken,
-            target,
-          );
-          await configToUpdate.update(
-            "nokanban.telegramChatId",
-            data.telegramChatId,
-            target,
-          );
+          await configToUpdate.update("nokanban.discordWebhookUrl", data.discordUrl, target);
+          await configToUpdate.update("nokanban.telegramBotToken", data.telegramToken, target);
+          await configToUpdate.update("nokanban.telegramChatId", data.telegramChatId, target);
 
           const scopeMsg = hasWorkspace ? "este projeto" : "o VS Code (Global)";
           vscode.window.showInformationMessage(
@@ -228,11 +170,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
         await exportData(this._taskState, notifyView);
         break;
       case "import":
-        await importData(
-          this._taskState,
-          (tasks) => this._updateBadge(tasks),
-          notifyView,
-        );
+        await importData(this._taskState, (tasks) => this._updateBadge(tasks), notifyView);
         break;
       case "pushGist":
         await pushToGist(this._taskState, notifyView);
@@ -251,21 +189,21 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
         await disconnectGist(this._taskState, notifyView);
         break;
       case "enableAutoBackup":
-        await enableAutoBackup(
-          this._globalState,
-          data.enabled,
-          data.interval,
-          () => this._scheduleBackup(),
+        await enableAutoBackup(this._globalState, data.enabled, data.interval, () =>
+          this._scheduleBackup(),
         );
         break;
       case "pushDiscord":
-        await syncProjectToDiscord(this._taskState);
+        // Força = true porque o comando foi clicado na mão
+        await this._notificationService.syncProjectToDiscord(this._taskState, true);
+        vscode.window.showInformationMessage("Enviado para o Discord!");
+        break;
+      case "pushTelegram":
+        await this._notificationService.syncProjectToTelegram(this._taskState, true);
+        vscode.window.showInformationMessage("Enviado para o Telegram!");
         break;
       case "notify":
         vscode.window.showInformationMessage(data.text);
-        break;
-      case "pushTelegram":
-        await syncProjectToTelegram(this._taskState);
         break;
     }
   }
@@ -301,10 +239,7 @@ class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
     this._view.badge =
       pendingCount > 0
-        ? {
-            tooltip: `${pendingCount} tarefa(s) pendente(s)`,
-            value: pendingCount,
-          }
+        ? { tooltip: `${pendingCount} tarefa(s) pendente(s)`, value: pendingCount }
         : undefined;
   }
 

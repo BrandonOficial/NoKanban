@@ -31,15 +31,9 @@ export function generateExportContent(tasks: Task[]): string {
   return content;
 }
 
-export type NotifyView = (
-  command: string,
-  data?: Record<string, unknown>,
-) => void;
+export type NotifyView = (command: string, data?: Record<string, unknown>) => void;
 
-export async function exportData(
-  state: vscode.Memento,
-  notifyView?: NotifyView,
-): Promise<void> {
+export async function exportData(state: vscode.Memento, notifyView?: NotifyView): Promise<void> {
   const tasks = getSavedTasks(state);
 
   const uri = await vscode.window.showSaveDialog({
@@ -111,9 +105,7 @@ export async function importData(
         notifyView?.("updateTasks", { tasks: data.tasks || [] });
         vscode.window.showInformationMessage("Tarefas importadas com sucesso!");
       } catch {
-        vscode.window.showErrorMessage(
-          "Erro ao importar JSON. Verifique se o arquivo é válido.",
-        );
+        vscode.window.showErrorMessage("Erro ao importar JSON. Verifique se o arquivo é válido.");
       }
     }
   } catch {

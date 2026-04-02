@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { TextEncoder } from "util";
 import { getSavedTasks } from "./storage";
-import type { Task } from "./types";
 
 const BACKUP_DIR_NAME = ".nokanban-backups";
 const MAX_BACKUPS = 10;
@@ -17,21 +16,20 @@ export async function enableAutoBackup(
   onScheduled();
 }
 
-export function initializeAutoBackup(
-  state: vscode.Memento,
-  onScheduled: () => void,
-): void {
+export function initializeAutoBackup(state: vscode.Memento, onScheduled: () => void): void {
   const enabled = state.get<boolean>("autoBackupEnabled", false);
   if (enabled) {
     onScheduled();
   }
 }
 
-async function getOrCreateBackupDirectory(): Promise<vscode.Uri> {
+// FIX: Recebendo a URI segura global (se não tiver workspace aberto)
+async function getOrCreateBackupDirectory(globalStorageUri: vscode.Uri): Promise<vscode.Uri> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+
   const backupDir = workspaceFolder
     ? vscode.Uri.joinPath(workspaceFolder, BACKUP_DIR_NAME)
-    : vscode.Uri.joinPath(vscode.Uri.file(vscode.env.appRoot), BACKUP_DIR_NAME);
+    : vscode.Uri.joinPath(globalStorageUri, BACKUP_DIR_NAME);
 
   try {
     await vscode.workspace.fs.stat(backupDir);
@@ -57,21 +55,22 @@ async function cleanupOldBackups(backupDir: vscode.Uri): Promise<void> {
   }
 }
 
-export async function performAutoBackup(state: vscode.Memento): Promise<void> {
+// FIX: A função agora exige o globalStorageUri
+export async function performAutoBackup(
+  state: vscode.Memento,
+  globalStorageUri: vscode.Uri,
+): Promise<void> {
   try {
     const tasks = getSavedTasks(state);
 
-    // Clean Code: Se não tem tarefas, não faz sentido gerar um backup vazio de 30 em 30 min.
+    // Clean Code: Guard Clause para evitar backups vazios atoa
     if (!tasks || tasks.length === 0) {
       return;
     }
 
-    const backupDir = await getOrCreateBackupDirectory();
+    const backupDir = await getOrCreateBackupDirectory(globalStorageUri);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupFile = vscode.Uri.joinPath(
-      backupDir,
-      `backup-${timestamp}.json`,
-    );
+    const backupFile = vscode.Uri.joinPath(backupDir, `backup-${timestamp}.json`);
 
     const data = {
       version: "2.0",

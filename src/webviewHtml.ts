@@ -173,8 +173,8 @@ export function getWebviewContent({
 
         /* FIX: Alinhamento flexível pelo topo igual à tarefa principal */
         .subtask-item { display: flex; align-items: flex-start; gap: 6px; padding: 4px 0; font-size: 12px; color: var(--vscode-descriptionForeground); min-height: 24px; }
-        .subtask-item input[type="checkbox"] { margin-top: 1px; flex-shrink: 0; }
-        .subtask-item span { flex: 1; word-break: break-word; overflow-wrap: anywhere; line-height: 1.4; padding-top: 1px; }
+        .subtask-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; }
+        .subtask-item span { flex: 1; word-break: break-word; overflow-wrap: anywhere; line-height: 1.4; padding-top: 0px; }
         .subtask-item button { flex-shrink: 0; margin-top: -1px; }
 
         .subtask-input-wrapper { display: flex; width: 100%; margin-top: 4px; }
@@ -319,7 +319,7 @@ export function getWebviewContent({
                 
                 <div class="integration-card">
                     <div class="card-header">
-                        <div class="service-icon" style="color: var(--vscode-foreground);">\${icons.sync}</div>
+                        <div class="service-icon" style="color: var(--vscode-foreground);">${icons.sync}</div>
                         <span style="font-weight: bold;">GitHub Gist</span>
                         <span id="gist-status-badge" class="status-badge status-disconnected">Desconectado</span>
                     </div>
@@ -337,14 +337,14 @@ export function getWebviewContent({
 
                 <div class="integration-card">
                     <div class="card-header">
-                        <div class="service-icon" style="color: #5865F2;">\${icons.discord}</div>
+                        <div class="service-icon" style="color: #5865F2;">${icons.discord}</div>
                         <span style="font-weight: bold;">Discord</span>
-                        <span id="discord-status-badge" class="status-badge \${discordUrl ? 'status-connected' : 'status-disconnected'}">
-                            \${discordUrl ? 'Ativo' : 'Pendente'}
+                        <span id="discord-status-badge" class="status-badge ${discordUrl ? "status-connected" : "status-disconnected"}">
+                            ${discordUrl ? "Ativo" : "Pendente"}
                         </span>
                     </div>
                     <div class="card-body">
-                        <input type="text" id="cfg-discord-url" class="config-input" placeholder="Webhook URL" value="\${discordUrl}" autocomplete="off" spellcheck="false">
+                        <input type="text" id="cfg-discord-url" class="config-input" placeholder="Webhook URL" value="${discordUrl}" autocomplete="off" spellcheck="false">
                         <button class="btn-block" id="btn-discord" style="background-color: #5865F2; color: white; border: none;">
                             Enviar Teste para Discord
                         </button>
@@ -353,15 +353,15 @@ export function getWebviewContent({
 
                 <div class="integration-card">
                     <div class="card-header">
-                        <div class="service-icon" style="color: #2AABEE;">\${icons.telegram}</div>
+                        <div class="service-icon" style="color: #2AABEE;">${icons.telegram}</div>
                         <span style="font-weight: bold;">Telegram</span>
-                        <span id="telegram-status-badge" class="status-badge \${telegramToken ? 'status-connected' : 'status-disconnected'}">
-                            \${telegramToken ? 'Ativo' : 'Pendente'}
+                        <span id="telegram-status-badge" class="status-badge ${telegramToken ? "status-connected" : "status-disconnected"}">
+                            ${telegramToken ? "Ativo" : "Pendente"}
                         </span>
                     </div>
                     <div class="card-body">
-                        <input type="password" id="cfg-telegram-token" class="config-input" placeholder="Bot Token" value="\${telegramToken}" autocomplete="off" spellcheck="false" style="margin-bottom: 4px;">
-                        <input type="text" id="cfg-telegram-chat" class="config-input" placeholder="Chat ID" value="\${telegramChatId}" autocomplete="off" spellcheck="false">
+                        <input type="password" id="cfg-telegram-token" class="config-input" placeholder="Bot Token" value="${telegramToken}" autocomplete="off" spellcheck="false" style="margin-bottom: 4px;">
+                        <input type="text" id="cfg-telegram-chat" class="config-input" placeholder="Chat ID" value="${telegramChatId}" autocomplete="off" spellcheck="false">
                         <button class="btn-block" id="btn-telegram" style="background-color: #2AABEE; color: white; border: none;">
                             Enviar Teste para Telegram
                         </button>
@@ -388,7 +388,7 @@ export function getWebviewContent({
     <script>
         const vscode = acquireVsCodeApi();
         
-        const rawState = "${safeStateData}";
+        const rawState = '${safeStateData}';
         let parsedTasks = [];
         try { parsedTasks = JSON.parse(rawState); } catch(e) { console.error("Erro no parse:", e); }
 
