@@ -2,7 +2,7 @@
   "name": "nokanban",
   "displayName": "NoKanban",
   "description": "Gerenciamento de tarefas, Pomodoro e anotações minimalistas direto na Sidebar do seu VS Code.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "nokanban-dev",
   "icon": "assets/Logo.png",
   "repository": {
@@ -45,7 +45,7 @@
         {
           "id": "notepad-container",
           "title": "Nokanban",
-          "icon": "assets/Logo.png"
+          "icon": "assets/LogoMarketplace.png"
         }
       ]
     },
@@ -55,7 +55,7 @@
           "type": "webview",
           "id": "notepad-sidebar",
           "name": "Anotações Rápidas",
-          "icon": "assets/logo.svg"
+          "icon": "assets/LogoMarketplace.png"
         }
       ]
     },
