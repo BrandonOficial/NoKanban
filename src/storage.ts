@@ -5,6 +5,11 @@ export function getSavedTasks(state: vscode.Memento): Task[] {
   return state.get<Task[]>("todoList", []) ?? [];
 }
 
+export function getWorkspaceKey(): string {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  return folder ? folder.uri.toString() : "__global__";
+}
+
 // Verifica se as tarefas mudaram desde o último sync
 export function hasTasksChanged(
   state: vscode.Memento,

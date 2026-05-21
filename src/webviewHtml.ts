@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 interface WebviewContentParams {
   webview: vscode.Webview;
   scriptUri: vscode.Uri;
+  workspaceKey: string;
   tasks: any[];
   autoBackupEnabled: boolean;
   autoBackupInterval: number;
@@ -31,6 +32,7 @@ const icons = {
 export function getWebviewContent(params: WebviewContentParams): string {
   // 1. O Estado Global Consolidado
   const stateData = {
+    workspaceKey: params.workspaceKey,
     tasks: params.tasks,
     autoBackupEnabled: params.autoBackupEnabled,
     autoBackupInterval: params.autoBackupInterval,
@@ -288,6 +290,13 @@ export function getWebviewContent(params: WebviewContentParams): string {
                 <button class="btn-reset" id="btn-reset-pomo">${icons.reset}</button>
             </div>
         </div>
+    </div>
+
+    <div id="context-menu" class="context-menu">
+        <button class="menu-item" data-priority="high"><span class="priority-dot p-high"></span> Alta</button>
+        <button class="menu-item" data-priority="medium"><span class="priority-dot p-medium"></span> Média</button>
+        <button class="menu-item" data-priority="low"><span class="priority-dot p-low"></span> Baixa</button>
+        <button class="menu-item" data-priority="">Remover Prioridade</button>
     </div>
 
     <div id="settings-modal" class="modal-overlay">

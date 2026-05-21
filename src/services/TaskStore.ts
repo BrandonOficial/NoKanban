@@ -36,17 +36,59 @@ export class TaskStore {
   }
 
   public deleteTask(index: number): void {
-    // Remove 1 elemento a partir do índice passado
     this.tasks.splice(index, 1);
-
-    // Notifica o Controller que os dados mudaram e ele precisa recriar a UI
     this.notify();
   }
 
-  // Nota: Atualizar a nota não deve disparar um re-render completo para não perder o foco
+  public setPriority(index: number, priority: string | undefined): void {
+    this.tasks[index].priority = priority;
+    this.notify();
+  }
+
+  public toggleExpand(index: number): void {
+    const task = this.tasks[index];
+    task.isExpanded = !task.isExpanded;
+    this.notify();
+  }
+
+  public toggleNoteExpanded(index: number): void {
+    const task = this.tasks[index];
+    task.isNoteExpanded = !task.isNoteExpanded;
+    this.notify();
+  }
+
   public updateNote(index: number, note: string): void {
     this.tasks[index].note = note;
-    this.notify(false); // Flag false = guarda os dados, mas não recria o ecrã
+    this.notify(false);
+  }
+
+  public addSubtask(index: number, text: string): void {
+    if (!text.trim()) return;
+    const task = this.tasks[index];
+    if (!task.subtasks) task.subtasks = [];
+    task.subtasks.push({ text: text.trim(), done: false });
+    task.isExpanded = true;
+    task.done = false;
+    this.notify();
+  }
+
+  public toggleSubtask(taskIndex: number, subIndex: number): void {
+    const task = this.tasks[taskIndex];
+    const sub = task.subtasks![subIndex];
+    sub.done = !sub.done;
+    if (task.subtasks!.length > 0) {
+      task.done = task.subtasks!.every((s) => s.done);
+    }
+    this.notify();
+  }
+
+  public deleteSubtask(taskIndex: number, subIndex: number): void {
+    const task = this.tasks[taskIndex];
+    task.subtasks!.splice(subIndex, 1);
+    if (task.subtasks!.length > 0) {
+      task.done = task.subtasks!.every((s) => s.done);
+    }
+    this.notify();
   }
 
   public setSearch(query: string): void {

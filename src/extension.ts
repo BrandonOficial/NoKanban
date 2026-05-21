@@ -45,7 +45,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 5. Registra tudo no ciclo de vida do VS Code
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("notepad-sidebar", provider),
+    vscode.window.registerWebviewViewProvider("notepad-sidebar", provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand("notepad.clear", () => provider.clearNotes()),
     vscode.commands.registerCommand("nokanban.sendReport", async () => {
       await notificationService.sendProjectStatus(

@@ -28,8 +28,7 @@ export class WebviewMessageController {
         await this.handleSaveConfig(data);
         break;
       case "saveTasks":
-        await this.taskState.update("todoList", data.tasks);
-        this.onTasksUpdated(data.tasks);
+        await this.handleSaveTasks(data.tasks);
         break;
       case "pushDiscord":
         await this.notificationService.syncSpecific("discord", this.taskState, true);
@@ -45,6 +44,21 @@ export class WebviewMessageController {
         );
         break;
       // ... Os outros cases (export, import, pushGist) seguem a mesma lógica de delegação
+    }
+  }
+
+  private async handleSaveTasks(tasks: Task[] | undefined): Promise<void> {
+    if (!Array.isArray(tasks)) {
+      console.warn("NoKanban: saveTasks ignorado — payload inválido");
+      return;
+    }
+    try {
+      await this.taskState.update("todoList", tasks);
+      this.onTasksUpdated(tasks);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("NoKanban: falha ao gravar tarefas", msg);
+      vscode.window.showErrorMessage(`NoKanban: não foi possível guardar as tarefas. ${msg}`);
     }
   }
 

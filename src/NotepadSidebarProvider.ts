@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getSavedTasks } from "./storage";
+import { getSavedTasks, getWorkspaceKey } from "./storage";
 import { getWebviewContent } from "./webviewHtml";
 import type { WebviewMessageController, WebviewMessage } from "./WebviewMessageController";
 import type { Task } from "./types";
@@ -31,9 +31,9 @@ export class NotepadSidebarProvider implements vscode.WebviewViewProvider {
 
     const controller = this.controllerFactory(notifyView, updateBadge);
 
-    webviewView.webview.onDidReceiveMessage((data: WebviewMessage) =>
-      controller.handleMessage(data),
-    );
+    webviewView.webview.onDidReceiveMessage((data: WebviewMessage) => {
+      void controller.handleMessage(data);
+    });
   }
 
   private async renderWebview(): Promise<void> {
@@ -50,6 +50,7 @@ export class NotepadSidebarProvider implements vscode.WebviewViewProvider {
     this._view.webview.html = getWebviewContent({
       webview: this._view.webview,
       scriptUri: scriptUri,
+      workspaceKey: getWorkspaceKey(),
       tasks,
       autoBackupEnabled: this.globalState.get<boolean>("autoBackupEnabled", false),
       autoBackupInterval: this.globalState.get<number>("autoBackupInterval", 30),
