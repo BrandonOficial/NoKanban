@@ -4,7 +4,7 @@
 
 ![NoKanban Logo](https://raw.githubusercontent.com/BrandonOficial/nokanban/main/assets/Logo.png)
 [![VS Code API](https://img.shields.io/badge/VS%20Code-API-007ACC?style=for-the-badge&logo=visual-studio-code)](https://code.visualstudio.com/api)
-[![Version](https://img.shields.io/badge/Versão-0.0.3-success?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Versão-0.0.4-success?style=for-the-badge)](#)
 
 **Sistema de gerenciamento de tarefas integrado ao VS Code com sincronização multi-plataforma**
 

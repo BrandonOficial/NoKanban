@@ -2,8 +2,9 @@
   "name": "nokanban",
   "displayName": "NoKanban",
   "description": "Gerenciamento de tarefas, Pomodoro e anotações minimalistas direto na Sidebar do seu VS Code.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "nokanban-dev",
+  "license": "MIT",
   "icon": "assets/Logo.png",
   "repository": {
     "type": "git",
@@ -79,7 +80,9 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "vsix": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -87,6 +90,7 @@
     "@types/vscode": "^1.105.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",

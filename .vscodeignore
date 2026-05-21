@@ -9,6 +9,7 @@ webpack.config.js
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
-**/*.mapI
+**/*.map
 **/*.ts
 **/.vscode-test.*
+.nokanban-backups/**

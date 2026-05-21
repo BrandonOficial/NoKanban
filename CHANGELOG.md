@@ -6,7 +6,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-- Initial release
+## [0.0.4] - 2026-05-21
+
+### Adicionado
+
+- Prioridade (Alta, Média, Baixa) com menu de contexto nas tarefas.
+- Subtarefas com checklist e barra de progresso.
+- Campo de notas por tarefa.
+
+### Corrigido
+
+- Persistência imediata ao criar tarefas e ao sair do campo de input.
+- Sincronização correta entre cache da webview e armazenamento do VS Code por workspace.
 
 ## [0.0.3] - 2026-04-02
 
