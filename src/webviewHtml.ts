@@ -1,17 +1,8 @@
 import * as vscode from "vscode";
 
-// Função auxiliar para escapar caracteres especiais e prevenir quebra de script (XSS/Syntax errors)
-export function sanitizeForJson(text: string): string {
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t");
-}
-
 interface WebviewContentParams {
   webview: vscode.Webview;
+  scriptUri: vscode.Uri;
   tasks: any[];
   autoBackupEnabled: boolean;
   autoBackupInterval: number;
@@ -37,19 +28,22 @@ const icons = {
   telegram: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>`,
 };
 
-export function getWebviewContent({
-  tasks,
-  autoBackupEnabled,
-  autoBackupInterval,
-  isAuthenticated,
-  gistLastSyncAt,
-  discordUrl,
-  telegramToken,
-  telegramChatId,
-}: WebviewContentParams): string {
-  const safeStateData = sanitizeForJson(JSON.stringify(tasks));
-  const safeLastSyncAt =
-    gistLastSyncAt === null || gistLastSyncAt === undefined ? "null" : String(gistLastSyncAt);
+export function getWebviewContent(params: WebviewContentParams): string {
+  // 1. O Estado Global Consolidado
+  const stateData = {
+    tasks: params.tasks,
+    autoBackupEnabled: params.autoBackupEnabled,
+    autoBackupInterval: params.autoBackupInterval,
+    isAuthenticated: params.isAuthenticated,
+    gistLastSyncAt: params.gistLastSyncAt,
+    discordUrl: params.discordUrl,
+    telegramToken: params.telegramToken,
+    telegramChatId: params.telegramChatId,
+    icons: icons,
+  };
+
+  // 2. Base64 Resolve 100% dos problemas de aspas e quebras de linha!
+  const encodedData = Buffer.from(JSON.stringify(stateData)).toString("base64");
 
   return /* html */ `<!DOCTYPE html>
 <html lang="pt-br">
@@ -142,7 +136,6 @@ export function getWebviewContent({
         .task-item { padding: 6px 8px; margin-bottom: 4px; display: flex; flex-direction: column; border-radius: 6px; border: 1px solid transparent; transition: background 0.2s ease; }
         .task-item:hover { background: var(--vscode-list-hoverBackground); }
 
-        /* AQUI ESTÁ O FIX DO ALINHAMENTO DINÂMICO */
         .task-main { display: flex; align-items: flex-start; gap: 8px; min-height: 24px; padding: 2px 0; }
         .checkbox-wrapper { display: flex; align-items: center; justify-content: center; width: 14px; height: 18px; flex-shrink: 0; margin-top: 1px; }
         
@@ -171,7 +164,6 @@ export function getWebviewContent({
         .subtasks-list { margin-left: 22px; padding-left: 8px; border-left: 1px dashed var(--vscode-tree-indentGuidesStroke); margin-top: 4px; display: none; }
         .subtasks-list.open { display: block; }
 
-        /* FIX: Alinhamento flexível pelo topo igual à tarefa principal */
         .subtask-item { display: flex; align-items: flex-start; gap: 6px; padding: 4px 0; font-size: 12px; color: var(--vscode-descriptionForeground); min-height: 24px; }
         .subtask-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; }
         .subtask-item span { flex: 1; word-break: break-word; overflow-wrap: anywhere; line-height: 1.4; padding-top: 0px; }
@@ -179,13 +171,11 @@ export function getWebviewContent({
 
         .subtask-input-wrapper { display: flex; width: 100%; margin-top: 4px; }
 
-        /* FIX: Transformando em um text-area sem barra de rolagem */
         .subtask-input { width: 100%; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; font-size: 11px; color: var(--vscode-foreground); transition: all 0.2s ease; font-family: var(--vscode-editor-font-family); resize: none; overflow: hidden; min-height: 24px; outline: none; }
         .subtask-input::placeholder { font-style: italic; opacity: 0.5; }
         .subtask-input:hover { background: rgba(128, 128, 128, 0.08); cursor: pointer; }
         .subtask-input:focus { background: var(--vscode-input-background); border-color: rgba(144, 202, 249, 0.3); cursor: text; }
 
-        /* AQUI ESTÁ O FIX DO AUTO-RESIZE DAS NOTAS */
         .task-note-input { width: 100%; background: transparent; border: 1px solid transparent; color: var(--vscode-descriptionForeground); border-radius: 4px; padding: 6px 8px; font-size: 11px; font-family: var(--vscode-editor-font-family); resize: none; min-height: 30px; overflow: hidden; outline: none; margin-top: 4px; transition: all 0.2s ease; }
         .task-note-input:hover { background: rgba(128, 128, 128, 0.05); cursor: pointer; }
         .task-note-input:focus { border-color: rgba(144, 202, 249, 0.3); background: var(--vscode-input-background); color: var(--vscode-input-foreground); cursor: text; }
@@ -225,7 +215,6 @@ export function getWebviewContent({
         .config-input { width: 100%; padding: 6px 8px; border-radius: 2px; font-size: 11px; margin-top: 4px; margin-bottom: 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
         .config-input:focus { border-color: var(--vscode-focusBorder); }
 
-        /* AQUI ESTÁ O NOVO ESTILO DOS CARDS DE INTEGRAÇÃO */
         .integration-card { background: var(--vscode-editor-background); border: 1px solid var(--vscode-widget-border); border-radius: 6px; padding: 12px; margin-bottom: 12px; transition: border-color 0.2s ease; }
         .integration-card:hover { border-color: var(--vscode-focusBorder); }
         .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
@@ -242,26 +231,25 @@ export function getWebviewContent({
     </style>
 </head>
 <body>
-
     <div class="header">
         <div class="tabs">
-            <button class="tab-btn active" data-target="tasks" onclick="switchTab('tasks')">Tarefas</button>
-            <button class="tab-btn" data-target="pomodoro" onclick="switchTab('pomodoro')">Timer</button>
+            <button class="tab-btn active" data-target="tasks">Tarefas</button>
+            <button class="tab-btn" data-target="pomodoro">Timer</button>
         </div>
         <div class="header-actions">
-            <button class="icon-btn" id="sync-btn" title="Configurações & Integrações"></button>
+            <button class="icon-btn" id="sync-btn" title="Configurações & Integrações">${icons.sync}</button>
         </div>
     </div>
 
     <div id="view-tasks" class="view-container active">
         <div class="tasks-header">
             <div class="search-wrapper">
-                <span class="search-icon" id="icon-search"></span>
+                <span class="search-icon" id="icon-search">${icons.search}</span>
                 <input type="text" id="task-search" placeholder="Buscar tarefas..." autocomplete="off">
             </div>
             <div class="input-row">
-                <input type="text" id="task-input" placeholder="Nova tarefa..." autocomplete="off" title="Digite a tarefa e aperte Enter" />
-                <button id="add-btn" class="btn-primary" title="Adicionar Tarefa"></button>
+                <input type="text" id="task-input" placeholder="Nova tarefa..." autocomplete="off" />
+                <button id="add-btn" class="btn-primary" title="Adicionar Tarefa">${icons.add}</button>
             </div>
             <div class="filter-row" id="filter-container">
                 <button class="chip active" data-filter="all">Todas</button>
@@ -279,15 +267,16 @@ export function getWebviewContent({
             </div>
             <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
         </div>
+        
         <ul id="task-list" class="task-list"></ul>
     </div>
 
     <div id="view-pomodoro" class="view-container">
         <div class="pomodoro-wrapper">
             <div class="filter-row" style="justify-content: center; flex-wrap: wrap;">
-                <button class="chip active" data-pomo-mode="focus" onclick="setPomodoroMode('focus')">Timer</button>
-                <button class="chip" data-pomo-mode="short" onclick="setPomodoroMode('short')">Pausa Curta</button>
-                <button class="chip" data-pomo-mode="long" onclick="setPomodoroMode('long')">Pausa Longa</button>
+                <button class="chip active" data-pomo-mode="focus">Timer</button>
+                <button class="chip" data-pomo-mode="short">Pausa Curta</button>
+                <button class="chip" data-pomo-mode="long">Pausa Longa</button>
             </div>
             <div class="timer-wrapper mode-focus" id="timer-wrapper">
                 <input type="text" class="timer-input" id="timer-mins" value="25" maxlength="3" autocomplete="off" spellcheck="false">
@@ -295,40 +284,34 @@ export function getWebviewContent({
                 <input type="text" class="timer-input" id="timer-secs" value="00" maxlength="2" autocomplete="off" spellcheck="false">
             </div>
             <div class="pomodoro-controls">
-                <button id="btn-pomo-toggle" class="btn-pomodoro" onclick="togglePomodoro()">Iniciar</button>
-                <button class="btn-reset" id="btn-reset-pomo" onclick="resetPomodoro()"></button>
+                <button id="btn-pomo-toggle" class="btn-pomodoro">Iniciar</button>
+                <button class="btn-reset" id="btn-reset-pomo">${icons.reset}</button>
             </div>
         </div>
-    </div>
-
-    <div id="context-menu" class="context-menu">
-        <button class="menu-item" onclick="applyPriority('high')"><span class="priority-dot p-high"></span> Alta</button>
-        <button class="menu-item" onclick="applyPriority('medium')"><span class="priority-dot p-medium"></span> Média</button>
-        <button class="menu-item" onclick="applyPriority('low')"><span class="priority-dot p-low"></span> Baixa</button>
-        <button class="menu-item" onclick="applyPriority(undefined)">Remover Prioridade</button>
     </div>
 
     <div id="settings-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
                 <span>Configurações</span>
-                <button class="icon-btn" id="close-settings" title="Fechar"></button>
+                <button class="icon-btn" id="close-settings" title="Fechar">${icons.close}</button>
             </div>
-            
             <div class="modal-body">
                 
                 <div class="integration-card">
                     <div class="card-header">
                         <div class="service-icon" style="color: var(--vscode-foreground);">${icons.sync}</div>
                         <span style="font-weight: bold;">GitHub Gist</span>
-                        <span id="gist-status-badge" class="status-badge status-disconnected">Desconectado</span>
+                        <span id="gist-status-badge" class="status-badge ${params.isAuthenticated ? "status-connected" : "status-disconnected"}">
+                            ${params.isAuthenticated ? "Conectado" : "Desconectado"}
+                        </span>
                     </div>
                     <div class="card-body">
                         <div id="auth-status" style="font-size: 11px; color: var(--vscode-descriptionForeground);">
-                            Sincronize as suas tarefas na nuvem.
+                            ${params.isAuthenticated ? "Sincronizado com a nuvem." : "Sincronize as suas tarefas na nuvem."}
                         </div>
-                        <button class="btn-block" id="btn-auth">Conectar Conta</button>
-                        <div id="sync-actions" style="display:none; gap:4px;">
+                        <button class="btn-block" id="btn-auth" style="display: ${params.isAuthenticated ? "none" : "block"}">Conectar Conta</button>
+                        <div id="sync-actions" style="display: ${params.isAuthenticated ? "flex" : "none"}; gap:4px;">
                             <button class="btn-block" id="btn-push" title="Salvar dados na nuvem">Enviar ⬆</button>
                             <button class="btn-block" id="btn-pull" title="Baixar dados da nuvem">Baixar ⬇</button>
                         </div>
@@ -339,12 +322,12 @@ export function getWebviewContent({
                     <div class="card-header">
                         <div class="service-icon" style="color: #5865F2;">${icons.discord}</div>
                         <span style="font-weight: bold;">Discord</span>
-                        <span id="discord-status-badge" class="status-badge ${discordUrl ? "status-connected" : "status-disconnected"}">
-                            ${discordUrl ? "Ativo" : "Pendente"}
+                        <span id="discord-status-badge" class="status-badge ${params.discordUrl ? "status-connected" : "status-disconnected"}">
+                            ${params.discordUrl ? "Ativo" : "Pendente"}
                         </span>
                     </div>
                     <div class="card-body">
-                        <input type="text" id="cfg-discord-url" class="config-input" placeholder="Webhook URL" value="${discordUrl}" autocomplete="off" spellcheck="false">
+                        <input type="text" id="cfg-discord-url" class="config-input" placeholder="Webhook URL" value="${params.discordUrl}" autocomplete="off" spellcheck="false">
                         <button class="btn-block" id="btn-discord" style="background-color: #5865F2; color: white; border: none;">
                             Enviar Teste para Discord
                         </button>
@@ -355,13 +338,13 @@ export function getWebviewContent({
                     <div class="card-header">
                         <div class="service-icon" style="color: #2AABEE;">${icons.telegram}</div>
                         <span style="font-weight: bold;">Telegram</span>
-                        <span id="telegram-status-badge" class="status-badge ${telegramToken ? "status-connected" : "status-disconnected"}">
-                            ${telegramToken ? "Ativo" : "Pendente"}
+                        <span id="telegram-status-badge" class="status-badge ${params.telegramToken ? "status-connected" : "status-disconnected"}">
+                            ${params.telegramToken ? "Ativo" : "Pendente"}
                         </span>
                     </div>
                     <div class="card-body">
-                        <input type="password" id="cfg-telegram-token" class="config-input" placeholder="Bot Token" value="${telegramToken}" autocomplete="off" spellcheck="false" style="margin-bottom: 4px;">
-                        <input type="text" id="cfg-telegram-chat" class="config-input" placeholder="Chat ID" value="${telegramChatId}" autocomplete="off" spellcheck="false">
+                        <input type="password" id="cfg-telegram-token" class="config-input" placeholder="Bot Token" value="${params.telegramToken}" autocomplete="off" spellcheck="false" style="margin-bottom: 4px;">
+                        <input type="text" id="cfg-telegram-chat" class="config-input" placeholder="Chat ID" value="${params.telegramChatId}" autocomplete="off" spellcheck="false">
                         <button class="btn-block" id="btn-telegram" style="background-color: #2AABEE; color: white; border: none;">
                             Enviar Teste para Telegram
                         </button>
@@ -370,7 +353,7 @@ export function getWebviewContent({
                 
                 <div style="margin-top: 12px; display:flex; align-items:center; gap:8px;">
                     <input type="checkbox" id="chk-backup">
-                    <label for="chk-backup" style="font-size:11px;" title="Cria backups automáticos localmente">Backup Automático Local</label>
+                    <label for="chk-backup" style="font-size:11px;">Backup Automático Local</label>
                 </div>
 
                 <button class="btn-block" id="btn-save-config" style="background: var(--vscode-button-background); color: var(--vscode-button-foreground); font-weight: bold; margin-top: 10px;">
@@ -378,308 +361,15 @@ export function getWebviewContent({
                 </button>
                 
                 <div style="display:flex; gap:4px; margin-top: 8px;">
-                    <button class="btn-block" id="btn-export" title="Fazer download manual">Exportar Local</button>
-                    <button class="btn-block" id="btn-import" title="Carregar um backup salvo">Importar Local</button>
+                    <button class="btn-block" id="btn-export">Exportar Local</button>
+                    <button class="btn-block" id="btn-import">Importar Local</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        const vscode = acquireVsCodeApi();
-        
-        const rawState = '${safeStateData}';
-        let parsedTasks = [];
-        try { parsedTasks = JSON.parse(rawState); } catch(e) { console.error("Erro no parse:", e); }
-
-        let state = { tasks: parsedTasks, activeFilters: new Set(), search: '', contextTargetIndex: -1 };
-        const els = { taskList: document.getElementById('task-list'), taskInput: document.getElementById('task-input'), search: document.getElementById('task-search'), modal: document.getElementById('settings-modal'), contextMenu: document.getElementById('context-menu') };
-        
-        const icons = ${JSON.stringify(icons)};
-
-        document.getElementById('sync-btn').innerHTML = icons.sync;
-        document.getElementById('icon-search').innerHTML = icons.search;
-        document.getElementById('add-btn').innerHTML = icons.add;
-        document.getElementById('btn-reset-pomo').innerHTML = icons.reset;
-        document.getElementById('close-settings').innerHTML = icons.close;
-
-        document.getElementById('chk-backup').checked = ${autoBackupEnabled};
-
-        window.switchTab = (tab) => {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.view-container').forEach(v => v.classList.remove('active'));
-            document.querySelector(\`.tab-btn[data-target="\${tab}"]\`).classList.add('active');
-            document.getElementById('view-' + tab).classList.add('active');
-            if(tab === 'tasks') els.taskInput.focus();
-        };
-
-        function updateProgress() {
-            const container = document.getElementById('progress-container');
-            let totalItems = 0, completedItems = 0;
-            state.tasks.forEach(task => {
-                totalItems++; if (task.done) completedItems++;
-                if (task.subtasks) task.subtasks.forEach(sub => { totalItems++; if (sub.done) completedItems++; });
-            });
-            if (totalItems === 0) { container.style.display = 'none'; return; }
-            container.style.display = 'block';
-            const percent = Math.round((completedItems / totalItems) * 100);
-            document.getElementById('progress-count').textContent = \`\${completedItems}/\${totalItems} concluídas\`;
-            document.getElementById('progress-percent').textContent = \`\${percent}%\`;
-            document.getElementById('progress-fill').style.width = \`\${percent}%\`;
-        }
-
-        /* --- POMODORO LOGIC --- */
-        const POMO_TIMES = { focus: 25 * 60, short: 5 * 60, long: 15 * 60 };
-        let pomoState = { mode: 'focus', timeLeft: POMO_TIMES.focus, interval: null, isRunning: false };
-        const timerWrapper = document.getElementById('timer-wrapper'), inputMins = document.getElementById('timer-mins'), inputSecs = document.getElementById('timer-secs'), btnPomoToggle = document.getElementById('btn-pomo-toggle');
-
-        function updateTimerDisplay() {
-            if (document.activeElement !== inputMins && document.activeElement !== inputSecs) {
-                inputMins.value = Math.floor(pomoState.timeLeft / 60).toString().padStart(2, '0');
-                inputSecs.value = (pomoState.timeLeft % 60).toString().padStart(2, '0');
-            }
-        }
-        function handleTimerEdit() {
-            let m = parseInt(inputMins.value) || 0, s = parseInt(inputSecs.value) || 0;
-            if (m < 0) m = 0; if (s < 0) s = 0; if (s > 59) s = 59; if (m === 0 && s === 0) m = 1;
-            pomoState.timeLeft = (m * 60) + s; inputMins.value = m.toString().padStart(2, '0'); inputSecs.value = s.toString().padStart(2, '0'); updateTimerDisplay();
-        }
-        [inputMins, inputSecs].forEach(input => {
-            input.addEventListener('focus', () => { if (pomoState.isRunning) togglePomodoro(); input.select(); });
-            input.addEventListener('blur', handleTimerEdit);
-            input.addEventListener('keypress', (e) => { if (e.key === 'Enter') input.blur(); });
-        });
-
-        window.setPomodoroMode = (mode) => {
-            if (pomoState.isRunning) { clearInterval(pomoState.interval); pomoState.isRunning = false; btnPomoToggle.textContent = 'Iniciar'; btnPomoToggle.classList.remove('running'); }
-            pomoState.mode = mode; pomoState.timeLeft = POMO_TIMES[mode]; updateTimerDisplay();
-            timerWrapper.className = 'timer-wrapper mode-' + (mode === 'focus' ? 'focus' : 'break');
-            document.querySelectorAll('[data-pomo-mode]').forEach(btn => btn.classList.remove('active'));
-            document.querySelector(\`[data-pomo-mode="\${mode}"]\`).classList.add('active');
-        };
-
-        window.togglePomodoro = () => {
-            inputMins.blur(); inputSecs.blur();
-            if (pomoState.isRunning) {
-                clearInterval(pomoState.interval); pomoState.isRunning = false; btnPomoToggle.textContent = 'Continuar'; btnPomoToggle.classList.remove('running');
-            } else {
-                pomoState.isRunning = true; btnPomoToggle.textContent = 'Pausar'; btnPomoToggle.classList.add('running');
-                pomoState.interval = setInterval(() => {
-                    if (pomoState.timeLeft > 0) { pomoState.timeLeft--; updateTimerDisplay(); }
-                    else { clearInterval(pomoState.interval); pomoState.isRunning = false; btnPomoToggle.textContent = 'Iniciar'; btnPomoToggle.classList.remove('running'); vscode.postMessage({ command: 'notify', text: 'O tempo acabou!' }); }
-                }, 1000);
-            }
-        };
-
-        window.resetPomodoro = () => { clearInterval(pomoState.interval); pomoState.isRunning = false; pomoState.timeLeft = POMO_TIMES[pomoState.mode]; updateTimerDisplay(); btnPomoToggle.textContent = 'Iniciar'; btnPomoToggle.classList.remove('running'); };
-        updateTimerDisplay();
-
-        /* --- TASKS VIEW LOGIC --- */
-        function post(cmd, data = {}) { vscode.postMessage({ command: cmd, ...data }); }
-        
-        function addTask() { 
-            const text = els.taskInput.value.trim(); 
-            if(!text) return; 
-            state.tasks.push({ text, done: false, priority: undefined, subtasks: [], isExpanded: true, note: "", isNoteExpanded: false }); 
-            els.taskInput.value = ''; 
-            saveTasks(true); 
-        }
-
-        document.getElementById('add-btn').addEventListener('click', addTask);
-        els.taskInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') addTask(); });
-        els.search.addEventListener('input', (e) => { state.search = e.target.value.toLowerCase(); renderTasks(); });
-
-        document.querySelectorAll('.filter-row#filter-container .chip').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const filter = btn.dataset.filter; if (!filter) return;
-                if (filter === 'all') { state.activeFilters.clear(); document.querySelectorAll('.filter-row#filter-container .chip').forEach(c => c.classList.remove('active')); btn.classList.add('active'); }
-                else {
-                    if (state.activeFilters.has(filter)) { state.activeFilters.delete(filter); btn.classList.remove('active'); }
-                    else { state.activeFilters.add(filter); btn.classList.add('active'); }
-                    const allBtn = document.querySelector('.filter-row#filter-container .chip[data-filter="all"]');
-                    if (state.activeFilters.size === 0) allBtn.classList.add('active'); else allBtn.classList.remove('active');
-                }
-                renderTasks();
-            });
-        });
-
-        document.getElementById('sync-btn').addEventListener('click', () => els.modal.classList.add('active'));
-        document.getElementById('close-settings').addEventListener('click', () => els.modal.classList.remove('active'));
-        els.modal.addEventListener('click', (e) => { if(e.target === els.modal) els.modal.classList.remove('active'); });
-
-        document.getElementById('btn-save-config').addEventListener('click', () => {
-            post('saveConfig', { 
-                discordUrl: document.getElementById('cfg-discord-url').value.trim(), 
-                telegramToken: document.getElementById('cfg-telegram-token').value.trim(), 
-                telegramChatId: document.getElementById('cfg-telegram-chat').value.trim() 
-            });
-            const btn = document.getElementById('btn-save-config');
-            const oldText = btn.textContent; btn.textContent = 'Salvo! ✓';
-            setTimeout(() => { btn.textContent = oldText; }, 2000);
-        });
-
-        document.getElementById('btn-auth').addEventListener('click', () => post('authenticateGist'));
-        document.getElementById('btn-push').addEventListener('click', () => post('pushGist'));
-        document.getElementById('btn-pull').addEventListener('click', () => post('pullGist'));
-        document.getElementById('btn-export').addEventListener('click', () => post('export'));
-        document.getElementById('btn-import').addEventListener('click', () => post('import'));
-        document.getElementById('chk-backup').addEventListener('change', (e) => { post('enableAutoBackup', { enabled: e.target.checked, interval: ${autoBackupInterval} }); });
-
-        document.addEventListener('click', (e) => { if(!e.target.closest('.action-mini')) els.contextMenu.classList.remove('show'); });
-
-        // --- SISTEMA DE CACHE INTELIGENTE CORRIGIDO ---
-        let saveTimeout;
-        
-        // Função que APENAS salva os dados (não mexe no layout)
-        function saveTasksData(immediate = false) {
-            clearTimeout(saveTimeout);
-            const executeSave = () => {
-                const cleanTasks = state.tasks.filter(t => t.text);
-                post('saveTasks', { tasks: cleanTasks });
-            };
-            if (immediate) executeSave();
-            else saveTimeout = setTimeout(executeSave, 500); 
-        }
-
-        // Função que atualiza o layout E salva
-        function saveTasks(immediate = false) {
-            renderTasks(); 
-            saveTasksData(immediate);
-        }
-
-        window.toggleTask = (i) => { const task = state.tasks[i]; task.done = !task.done; if (task.subtasks) task.subtasks.forEach(sub => sub.done = task.done); saveTasks(true); };
-        window.deleteTask = (i) => { state.tasks.splice(i, 1); saveTasks(true); };
-        window.toggleExpand = (i) => { state.tasks[i].isExpanded = !state.tasks[i].isExpanded; saveTasks(true); };
-        window.toggleNote = (i) => { state.tasks[i].isNoteExpanded = !state.tasks[i].isNoteExpanded; saveTasks(true); };
-        
-        window.addSub = (e, i) => { if(e.key === 'Enter' && e.target.value.trim()) { if(!state.tasks[i].subtasks) state.tasks[i].subtasks = []; state.tasks[i].subtasks.push({text: e.target.value, done: false}); state.tasks[i].done = false; saveTasks(true); } };
-        window.toggleSub = (pi, si) => { state.tasks[pi].subtasks[si].done = !state.tasks[pi].subtasks[si].done; state.tasks[pi].done = state.tasks[pi].subtasks.every(sub => sub.done); saveTasks(true); };
-        window.deleteSub = (pi, si) => { state.tasks[pi].subtasks.splice(si, 1); if (state.tasks[pi].subtasks.length > 0) state.tasks[pi].done = state.tasks[pi].subtasks.every(sub => sub.done); saveTasks(true); };
-        
-        window.openPriorityMenu = (e, index) => { e.stopPropagation(); state.contextTargetIndex = index; const rect = e.target.getBoundingClientRect(); els.contextMenu.style.top = (rect.bottom + 5) + 'px'; els.contextMenu.style.right = '10px'; els.contextMenu.classList.add('show'); };
-        window.applyPriority = (prio) => { if(state.contextTargetIndex > -1) { state.tasks[state.contextTargetIndex].priority = prio; saveTasks(true); } els.contextMenu.classList.remove('show'); };
-
-        window.autoResizeNote = (el) => {
-            el.style.height = 'auto';
-            el.style.height = el.scrollHeight + 'px';
-        };
-
-        // FIX DA DIGITAÇÃO: Salva os dados em background sem atualizar o ecrã
-        window.handleNoteInput = (e, i) => {
-            state.tasks[i].note = e.target.value;
-            saveTasksData(); // Chamamos só a função de gravar, o renderTasks() fica de fora!
-            autoResizeNote(e.target);
-        };
-
-        /* --- RENDERIZAÇÃO DA UI --- */
-        function renderTasks() {
-            updateProgress();
-            els.taskList.innerHTML = '';
-            
-            const filtered = state.tasks.map((t, i) => ({...t, origIndex: i})).filter(t => {
-                if(state.search && !t.text.toLowerCase().includes(state.search)) return false;
-                if(state.activeFilters.has('pending') && t.done) return false;
-                const activePriorities = ['high', 'medium', 'low'].filter(p => state.activeFilters.has(p));
-                if (activePriorities.length > 0 && !activePriorities.includes(t.priority)) return false;
-                return true;
-            });
-
-            if(filtered.length === 0) { els.taskList.innerHTML = '<div class="empty-state"><span>Nenhuma tarefa por aqui!</span></div>'; return; }
-
-            filtered.forEach(task => {
-                const li = document.createElement('li');
-                li.className = 'task-item ' + (task.done ? 'completed' : '');
-                const prioClass = task.priority ? 'p-' + task.priority : '';
-                const prioHtml = task.priority ? \`<span class="priority-dot \${prioClass}" title="Prioridade \${task.priority}"></span>\` : '';
-                const expandIcon = task.subtasks?.length ? (task.isExpanded ? icons.collapse : icons.expand) : icons.add;
-
-                li.innerHTML = \`
-                    <div class="task-main">
-                        <div class="checkbox-wrapper">
-                            <input type="checkbox" \${task.done ? 'checked' : ''} onchange="toggleTask(\${task.origIndex})">
-                        </div>
-                        \${prioHtml}
-                        <div class="task-content" onclick="toggleTask(\${task.origIndex})">\${task.text}</div>
-                        <div class="task-actions">
-                            <button class="\${task.note?.trim() ? 'action-mini has-content' : 'action-mini'}" onclick="toggleNote(\${task.origIndex})">\${icons.note}</button>
-                            <button class="action-mini" onclick="toggleExpand(\${task.origIndex})">\${expandIcon}</button>
-                            <button class="action-mini" onclick="openPriorityMenu(event, \${task.origIndex})">\${icons.menu}</button>
-                            <button class="action-mini danger" onclick="deleteTask(\${task.origIndex})">\${icons.delete}</button>
-                        </div>
-                    </div>
-                \`;
-
-                // 1. ANOTAÇÕES SEMPRE ACIMA E "COLADAS" À TAREFA PRINCIPAL
-                if(task.isNoteExpanded) {
-                    const noteDiv = document.createElement('div');
-                    // Padding superior minúsculo para juntar visualmente à tarefa
-                    noteDiv.style.cssText = 'padding: 2px 12px 10px 30px;'; 
-                    noteDiv.innerHTML = \`<textarea class="task-note-input" placeholder="Suas anotações aqui..." oninput="handleNoteInput(event, \${task.origIndex})" onfocus="autoResizeNote(this)">\${task.note || ''}</textarea>\`;
-                    li.appendChild(noteDiv);
-                }
-
-                // 2. CHECKLIST SEMPRE POR BAIXO DA ANOTAÇÃO
-                if(task.isExpanded || (task.subtasks && task.subtasks.length > 0)) {
-                    const subList = document.createElement('div');
-                    subList.className = 'subtasks-list ' + (task.isExpanded ? 'open' : '');
-                    (task.subtasks || []).forEach((sub, subIdx) => {
-                        const subRow = document.createElement('div');
-                        subRow.className = 'subtask-item';
-                        subRow.innerHTML = \`
-                            <input type="checkbox" \${sub.done ? 'checked' : ''} onchange="toggleSub(\${task.origIndex}, \${subIdx})">
-                            <span style="\${sub.done ? 'text-decoration:line-through;opacity:0.6':''} flex:1">\${sub.text}</span>
-                            <button class="action-mini danger" style="width:16px;height:16px" onclick="deleteSub(\${task.origIndex}, \${subIdx})">\${icons.delete}</button>
-                        \`;
-                        subList.appendChild(subRow);
-                    });
-                    const subInput = document.createElement('div');
-                    subInput.className = 'subtask-input-wrapper';
-                    subInput.innerHTML = \`<textarea class="subtask-input" rows="1" placeholder="+ Subtarefa" onkeypress="addSub(event, \${task.origIndex})" oninput="autoResizeNote(this)" onfocus="autoResizeNote(this)"></textarea>\`;
-                    subList.appendChild(subInput);
-                    
-                    li.appendChild(subList);
-                }
-                
-                els.taskList.appendChild(li);
-            });
-        }
-
-        function updateAuthUI(auth, lastSync) {
-            const statusDiv = document.getElementById('auth-status');
-            const badge = document.getElementById('gist-status-badge');
-            const btnAuth = document.getElementById('btn-auth');
-            const syncActions = document.getElementById('sync-actions');
-            
-            if(auth) {
-                statusDiv.textContent = 'Sincronizado com a nuvem.';
-                badge.textContent = 'Conectado';
-                badge.className = 'status-badge status-connected';
-                btnAuth.style.display = 'none';
-                syncActions.style.display = 'flex';
-            } else {
-                statusDiv.textContent = 'Sincronize as suas tarefas na nuvem.';
-                badge.textContent = 'Desconectado';
-                badge.className = 'status-badge status-disconnected';
-                btnAuth.style.display = 'block';
-                syncActions.style.display = 'none';
-            }
-        }
-
-        window.addEventListener('message', event => {
-            const msg = event.data;
-            switch(msg.command) {
-                case 'updateTasks': state.tasks = msg.tasks || []; renderTasks(); break;
-                case 'updateAuthStatus': updateAuthUI(msg.authenticated, msg.lastSyncAt); break;
-                case 'clearAll': state.tasks = []; renderTasks(); break;
-            }
-        });
-
-        document.getElementById('btn-discord').addEventListener('click', () => post('pushDiscord'));
-        document.getElementById('btn-telegram').addEventListener('click', () => post('pushTelegram'));
-        
-        updateAuthUI(${isAuthenticated}, ${safeLastSyncAt});
-        renderTasks();
-    </script>
+    <script>window.__INITIAL_DATA__ = "${encodedData}";</script>
+    <script src="${params.scriptUri}"></script>
 </body>
 </html>`;
 }

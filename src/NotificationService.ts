@@ -1,128 +1,50 @@
 import * as vscode from "vscode";
-import { getSavedTasks, hasTasksChanged, saveSyncState } from "./storage";
-import { buildUnifiedSummary, type ChatFormatter } from "./messageBuilder";
-
-// Formatadores centralizados (Strategy Pattern)
-const discordFormatter: ChatFormatter = {
-  bold: (t) => `**${t}**`,
-  strike: (t) => `~~${t}~~`,
-  italic: (t) => `*${t}*`,
-  escape: (t) => t.replace(/[*_~`]/g, "\\$&"),
-  quotePrefix: ">",
-};
-
-const telegramFormatter: ChatFormatter = {
-  bold: (t) => `*${t}*`,
-  strike: (t) => `~${t}~`,
-  italic: (t) => `_${t}_`,
-  escape: (t) => t, // Mantendo limpo para Markdown comum
-  quotePrefix: "",
-};
+import { getSavedTasks } from "./storage";
+import type { INotificationProvider } from "./notifications/INotificationProvider";
 
 export class NotificationService {
-  // HOT-RELOAD: Busca as variáveis diretamente no uso para nunca usar configurações antigas
-  private getConfig(key: string): string {
-    return vscode.workspace.getConfiguration("nokanban").get<string>(key) || "";
+  private providers: INotificationProvider[];
+
+  // Injeção de dependência via construtor
+  constructor(providers: INotificationProvider[]) {
+    this.providers = providers;
   }
 
   /** Comando Manual: Usado para enviar mensagens customizadas / ping geral */
   public async sendProjectStatus(message: string): Promise<void> {
-    await Promise.all([this.notifyDiscordRaw(message), this.notifyTelegramRaw(message)]);
+    const notifyPromises = this.providers.map((provider) => provider.notifyRaw(message));
+
+    // allSettled garante que a falha de um não interrompa o outro
+    await Promise.allSettled(notifyPromises);
   }
 
   /**
-   * DRY: Sincronismo inteligente para Discord
+   * Sincroniza todas as plataformas registradas simultaneamente.
+   * Fechado para modificação (OCP) - novos provedores não alteram este método.
    */
-  public async syncProjectToDiscord(state: vscode.Memento, force = false): Promise<void> {
-    const webhookUrl = this.getConfig("discordWebhookUrl");
-    if (!webhookUrl) return;
-
+  public async syncAll(state: vscode.Memento, force = false): Promise<void> {
     const tasks = getSavedTasks(state);
-    if (!force && !hasTasksChanged(state, "discord", tasks)) return;
 
-    const message = buildUnifiedSummary(tasks, discordFormatter);
+    const syncPromises = this.providers.map((provider) => provider.sync(tasks, force, state));
 
-    try {
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: message }),
-      });
-      if (response.ok) {
-        await saveSyncState(state, "discord", tasks);
-      }
-    } catch (error) {
-      console.error("NoKanban: Erro ao sincronizar com Discord", error);
-    }
+    await Promise.allSettled(syncPromises);
   }
 
   /**
-   * DRY: Sincronismo inteligente para Telegram
+   * Sincroniza apenas uma plataforma específica (útil para os botões manuais da UI)
    */
-  public async syncProjectToTelegram(state: vscode.Memento, force = false): Promise<void> {
-    const botToken = this.getConfig("telegramBotToken");
-    const chatId = this.getConfig("telegramChatId");
-
-    if (!botToken || !chatId) return;
+  public async syncSpecific(
+    platformId: string,
+    state: vscode.Memento,
+    force = false,
+  ): Promise<void> {
+    const provider = this.providers.find((p) => p.platformId === platformId);
+    if (!provider) {
+      console.warn(`NoKanban: Provedor de notificação não encontrado: ${platformId}`);
+      return;
+    }
 
     const tasks = getSavedTasks(state);
-    if (!force && !hasTasksChanged(state, "telegram", tasks)) return;
-
-    const message = buildUnifiedSummary(tasks, telegramFormatter);
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: "Markdown",
-        }),
-      });
-      if (response.ok) {
-        await saveSyncState(state, "telegram", tasks);
-      }
-    } catch (error) {
-      console.error("NoKanban: Erro ao sincronizar com Telegram", error);
-    }
-  }
-
-  private async notifyDiscordRaw(message: string): Promise<void> {
-    const webhookUrl = this.getConfig("discordWebhookUrl");
-    if (!webhookUrl) return;
-
-    try {
-      await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: message }),
-      });
-    } catch (error) {
-      console.error("NoKanban: Erro ao bater na API do Discord", error);
-    }
-  }
-
-  private async notifyTelegramRaw(message: string): Promise<void> {
-    const botToken = this.getConfig("telegramBotToken");
-    const chatId = this.getConfig("telegramChatId");
-    if (!botToken || !chatId) return;
-
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: "Markdown",
-        }),
-      });
-    } catch (error) {
-      console.error("NoKanban: Erro ao bater na API do Telegram", error);
-    }
+    await provider.sync(tasks, force, state);
   }
 }
